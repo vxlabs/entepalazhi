@@ -1,11 +1,9 @@
 import "server-only";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { execute } from "@/lib/db";
 
 /**
- * Every admin mutation writes one row here. If a published claim is ever
- * disputed there is a record of who wrote it and when; if a volunteer
- * moderator is added later, accountability already exists. See
- * supabase/migrations/0002_admin.sql for the table.
+ * Every admin change writes one row here. If a published claim is ever
+ * disputed there is a record of who wrote it and when.
  */
 export async function writeAuditLog(entry: {
   actorEmail: string;
@@ -13,14 +11,19 @@ export async function writeAuditLog(entry: {
   projectId?: string;
   diff?: Record<string, unknown>;
 }): Promise<void> {
-  const supabase = createAdminClient();
-  const { error } = await supabase.from("admin_audit_log").insert({
-    actor_email: entry.actorEmail,
-    action: entry.action,
-    project_id: entry.projectId ?? null,
-    diff: entry.diff ?? null,
-  });
-  // Never let an audit-log write failure block the mutation it's
-  // describing - log and move on rather than throwing mid-action.
-  if (error) console.error("Failed to write admin_audit_log:", error);
+  try {
+    await execute(
+      `insert into admin_audit_log (actor_email, action, project_id, diff)
+       values (@actor_email, @action, @project_id, @diff)`,
+      {
+        actor_email: entry.actorEmail,
+        action: entry.action,
+        project_id: entry.projectId ?? null,
+        diff: entry.diff ? JSON.stringify(entry.diff) : null,
+      },
+    );
+  } catch (error) {
+    // Never let an audit-log failure block the change it describes.
+    console.error("Failed to write admin_audit_log:", error);
+  }
 }

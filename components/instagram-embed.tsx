@@ -19,8 +19,7 @@ const FALLBACK_TIMEOUT_MS = 3000;
  * restored token-free oEmbed in June 2026). That script can fail silently
  * (blocked, deleted post, private account), so this never just renders a
  * blank blockquote: if window.instgrm hasn't processed it within ~3s, it
- * swaps to a "Watch on Instagram" card instead. See the Phase 1 plan's
- * "Instagram embed" note for the sourcing on this.
+ * swaps to a "Watch on Instagram" card instead.
  */
 export function InstagramEmbed({ url, dict }: { url: string; dict: Dictionary }) {
   const containerRef = useRef<HTMLDivElement>(null);

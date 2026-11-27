@@ -50,7 +50,7 @@ export function DayCounter({ reportedOn, submittedOn, resolvedOn, dict }: Props)
       className={
         counter.frozen
           ? "relative overflow-hidden border-l-8 border-emerald-500 bg-emerald-950 p-6 text-white sm:p-8"
-          : "counter-grid relative overflow-hidden border-l-8 border-orange-500 bg-[#171714] p-6 text-white shadow-2xl shadow-black/10 sm:p-8"
+          : "counter-grid relative overflow-hidden border-l-8 border-board-500 bg-[#171714] p-6 text-white shadow-2xl shadow-black/10 sm:p-8"
       }
     >
       {counter.frozen ? (
@@ -61,11 +61,11 @@ export function DayCounter({ reportedOn, submittedOn, resolvedOn, dict }: Props)
         </div>
       ) : (
         <div className="relative z-10">
-          <div className="mb-8 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-orange-400">
-            <span className="size-2 animate-pulse rounded-full bg-orange-500" aria-hidden="true" />
+          <div className="mb-8 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-board-400">
+            <span className="size-2 animate-pulse rounded-full bg-board-500" aria-hidden="true" />
             {dict.detail.counter_live}
           </div>
-          <p className="text-7xl font-black leading-none tabular-nums tracking-[-0.07em] text-orange-500 sm:text-8xl">
+          <p className="text-7xl font-black leading-none tabular-nums tracking-[-0.07em] text-board-500 sm:text-8xl">
             {counter.days.toLocaleString("en-IN")}
           </p>
           <p className="mt-3 max-w-52 text-sm font-bold uppercase leading-snug tracking-wide text-white/65">{label}</p>

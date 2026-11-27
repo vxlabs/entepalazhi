@@ -10,9 +10,12 @@ export function SiteFooter({
 }: {
   locale: Locale;
   supportEnabled: boolean;
+  /** From /admin/settings; falls back to the default account in site-config. */
   instagramUrl: string | null;
 }) {
   const dict = getDictionary(locale);
+  const instagram = instagramUrl || SITE_CONFIG.instagramUrl;
+
   return (
     <footer className="mt-auto border-t bg-muted/30">
       <div className="mx-auto flex max-w-5xl flex-col gap-4 px-4 py-8 text-sm sm:px-6">
@@ -29,19 +32,16 @@ export function SiteFooter({
               {dict.footer.support}
             </Link>
           )}
-          {instagramUrl && (
-            <a href={instagramUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">
+          {instagram && (
+            <a href={instagram} target="_blank" rel="noopener noreferrer" className="hover:underline">
               {dict.footer.instagram}
             </a>
           )}
-          <a
-            href={SITE_CONFIG.youtubeUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:underline"
-          >
-            {dict.footer.youtube}
-          </a>
+          {SITE_CONFIG.youtubeUrl && (
+            <a href={SITE_CONFIG.youtubeUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">
+              {dict.footer.youtube}
+            </a>
+          )}
         </nav>
       </div>
     </footer>

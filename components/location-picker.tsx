@@ -22,11 +22,12 @@ export type LocationPickerLabels = {
   locationSelected: string;
   clearLocation: string;
   mapHint: string;
-  mapsFallback: string;
-  mapsUrlPlaceholder: string;
-  useLink: string;
-  readingLink: string;
-  mapsLinkError: string;
+  // Only needed where the "paste a Google Maps link" box is shown.
+  mapsFallback?: string;
+  mapsUrlPlaceholder?: string;
+  useLink?: string;
+  readingLink?: string;
+  mapsLinkError?: string;
   geolocationUnsupported: string;
   geolocationDenied: string;
   geolocationUnavailable: string;
@@ -41,6 +42,9 @@ export function LocationPicker({
   labels,
   mapsInputName,
   showCoordinates = false,
+  scrollWheelZoom = false,
+  mapVisibility = "always",
+  showMapsLink = true,
 }: {
   latitude: number | null;
   longitude: number | null;
@@ -48,16 +52,26 @@ export function LocationPicker({
   labels: LocationPickerLabels;
   mapsInputName?: string;
   showCoordinates?: boolean;
+  scrollWheelZoom?: boolean;
+  /** "afterAttempt" keeps the map out of the way until the location button
+   * has been pressed (or a pin already exists): the public form is filled on
+   * a phone, where an open map is a long scroll and a touch trap. It then
+   * opens whether the phone gave a location or refused, so the pin can be
+   * checked, moved, or placed by hand. */
+  mapVisibility?: "always" | "afterAttempt";
+  showMapsLink?: boolean;
 }) {
   const [mapsUrl, setMapsUrl] = useState("");
   const [locationMessage, setLocationMessage] = useState<string | null>(null);
   const [mapsError, setMapsError] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
+  const [attempted, setAttempted] = useState(false);
   const [readingLink, startReadingLink] = useTransition();
   const hasPin = isCoordinate(latitude) && isCoordinate(longitude);
 
   function handleCurrentLocation() {
     setLocationMessage(null);
+    setAttempted(true);
     if (!("geolocation" in navigator)) {
       setLocationMessage(labels.geolocationUnsupported);
       return;
@@ -92,10 +106,12 @@ export function LocationPicker({
         onChange(pin.latitude, pin.longitude);
         setLocationMessage(labels.locationSelected);
       } else {
-        setMapsError(labels.mapsLinkError);
+        setMapsError(labels.mapsLinkError ?? null);
       }
     });
   }
+
+  const showMap = mapVisibility === "always" || attempted || hasPin;
 
   return (
     <div className="space-y-3">
@@ -113,10 +129,14 @@ export function LocationPicker({
       </div>
       <p className="text-xs text-muted-foreground">{labels.locationHelp}</p>
       {locationMessage && <p className="text-sm" aria-live="polite">{locationMessage}</p>}
-      <LocationPickerMap latitude={latitude} longitude={longitude} onChange={(nextLat, nextLng) => { onChange(nextLat, nextLng); setLocationMessage(labels.locationSelected); }} />
-      <p className="text-xs text-muted-foreground">{labels.mapHint}</p>
+      {showMap && (
+        <>
+          <LocationPickerMap latitude={latitude} longitude={longitude} scrollWheelZoom={scrollWheelZoom} onChange={(nextLat, nextLng) => { onChange(nextLat, nextLng); setLocationMessage(labels.locationSelected); }} />
+          <p className="text-xs text-muted-foreground">{labels.mapHint}</p>
+        </>
+      )}
       {showCoordinates && hasPin && <p className="text-xs text-muted-foreground">{latitude.toFixed(5)}, {longitude.toFixed(5)}</p>}
-      <details className="text-sm">
+      {showMapsLink && <details className="text-sm">
         <summary className="cursor-pointer text-muted-foreground underline-offset-4 hover:underline">{labels.mapsFallback}</summary>
         <div className="mt-2 flex gap-2">
           <Input
@@ -132,7 +152,7 @@ export function LocationPicker({
           </Button>
         </div>
         {mapsError && <p className="mt-2 text-sm text-destructive" aria-live="polite">{mapsError}</p>}
-      </details>
+      </details>}
     </div>
   );
 }

@@ -22,7 +22,7 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
     items: [
       { href: "/admin", label: "Home", icon: LayoutDashboard, exact: true },
       { href: "/admin/queue", label: "Reviews", icon: Inbox, exact: false },
-      { href: "/admin/projects", label: "Cases", icon: FolderKanban, exact: false },
+      { href: "/admin/projects", label: "Issues", icon: FolderKanban, exact: false },
     ],
   },
   {

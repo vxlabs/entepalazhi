@@ -1,39 +1,40 @@
 /**
- * The 14 districts of Kerala. This is a fixed list rather than a database
- * table so it can be imported into both server code (filters, CHECK
- * constraint reference) and client components (dropdowns) with zero
- * round-trips, and enforced in Postgres via CHECK (district IN (...)) — see
- * supabase/migrations/0001_core.sql.
+ * The parts of Palazhi the site is organised by.
+ *
+ * PLACEHOLDER LIST - edit to match how residents actually divide the
+ * locality (wards, junctions, landmarks). It is a list in code rather than
+ * a database table or constraint, so changing it needs no migration:
+ *  - add or rename entries freely;
+ *  - keep a slug stable once issues have been filed under it (the slug is
+ *    what is stored in projects.area and used in /issues/area/<slug>);
+ *  - keep "other" last as the catch-all.
  */
-export type District = {
+export type Area = {
   slug: string;
   en: string;
   ml: string;
 };
 
-export const KERALA_DISTRICTS: District[] = [
-  { slug: "thiruvananthapuram", en: "Thiruvananthapuram", ml: "തിരുവനന്തപുരം" },
-  { slug: "kollam", en: "Kollam", ml: "കൊല്ലം" },
-  { slug: "pathanamthitta", en: "Pathanamthitta", ml: "പത്തനംതിട്ട" },
-  { slug: "alappuzha", en: "Alappuzha", ml: "ആലപ്പുഴ" },
-  { slug: "kottayam", en: "Kottayam", ml: "കോട്ടയം" },
-  { slug: "idukki", en: "Idukki", ml: "ഇടുക്കി" },
-  { slug: "ernakulam", en: "Ernakulam", ml: "എറണാകുളം" },
-  { slug: "thrissur", en: "Thrissur", ml: "തൃശ്ശൂർ" },
-  { slug: "palakkad", en: "Palakkad", ml: "പാലക്കാട്" },
-  { slug: "malappuram", en: "Malappuram", ml: "മലപ്പുറം" },
-  { slug: "kozhikode", en: "Kozhikode", ml: "കോഴിക്കോട്" },
-  { slug: "wayanad", en: "Wayanad", ml: "വയനാട്" },
-  { slug: "kannur", en: "Kannur", ml: "കണ്ണൂർ" },
-  { slug: "kasaragod", en: "Kasaragod", ml: "കാസർഗോഡ്" },
+export const PALAZHI_AREAS: Area[] = [
+  { slug: "palazhi-junction", en: "Palazhi Junction", ml: "പാലാഴി ജംഗ്ഷൻ" },
+  { slug: "hilite", en: "HiLite / Business Park", ml: "ഹൈലൈറ്റ് / ബിസിനസ് പാർക്ക്" },
+  { slug: "mathara", en: "Mathara", ml: "മാത്തറ" },
+  { slug: "kunnathupalam", en: "Kunnathupalam", ml: "കുന്നത്തുപാലം" },
+  { slug: "other", en: "Elsewhere in Palazhi", ml: "പാലാഴിയിലെ മറ്റിടങ്ങൾ" },
 ];
 
-const BY_SLUG = new Map(KERALA_DISTRICTS.map((d) => [d.slug, d]));
+export const DEFAULT_AREA = PALAZHI_AREAS[0].slug;
 
-export function getDistrict(slug: string): District | undefined {
+/** Pre-filled wherever a local body is asked for: almost every issue here
+ * falls under the same one. */
+export const DEFAULT_LOCAL_BODY = "Olavanna Grama Panchayat";
+
+/** Map centre for the location picker (Palazhi, Kozhikode). */
+export const PALAZHI_CENTER: [number, number] = [11.2455, 75.834];
+export const PALAZHI_ZOOM = 15;
+
+const BY_SLUG = new Map(PALAZHI_AREAS.map((a) => [a.slug, a]));
+
+export function getArea(slug: string): Area | undefined {
   return BY_SLUG.get(slug);
-}
-
-export function isDistrictSlug(slug: string): boolean {
-  return BY_SLUG.has(slug);
 }

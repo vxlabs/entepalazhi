@@ -8,9 +8,8 @@ import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-lea
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
+import { PALAZHI_CENTER, PALAZHI_ZOOM } from "@/lib/areas";
 
-const KERALA_CENTER: [number, number] = [10.35, 76.4];
-const KERALA_ZOOM = 8;
 const PIN_ZOOM = 15;
 
 const assetUrl = (asset: StaticImageData | string) => (typeof asset === "string" ? asset : asset.src);
@@ -68,7 +67,9 @@ function MapViewport({ latitude, longitude }: { latitude: number | null; longitu
       map.setView([latitude, longitude], PIN_ZOOM, { animate: false });
       return;
     }
-    map.flyTo([latitude, longitude], PIN_ZOOM, { duration: 0.35 });
+    // Never zoom back out past where the user has zoomed in to: placing or
+    // dragging the pin while zoomed in should keep that close view.
+    map.flyTo([latitude, longitude], Math.max(map.getZoom(), PIN_ZOOM), { duration: 0.35 });
   }, [latitude, longitude, map]);
 
   return null;
@@ -78,15 +79,19 @@ export default function LocationPickerMap({
   latitude,
   longitude,
   onChange,
+  scrollWheelZoom = false,
 }: {
   latitude: number | null;
   longitude: number | null;
   onChange: (latitude: number, longitude: number) => void;
+  /** Off by default: on a long public form, a wheel over the map would zoom
+   * it instead of scrolling the page. */
+  scrollWheelZoom?: boolean;
 }) {
   const hasPin = isCoordinate(latitude) && isCoordinate(longitude);
 
   return (
-    <MapContainer center={KERALA_CENTER} zoom={KERALA_ZOOM} scrollWheelZoom={false} className="h-64 w-full rounded-md">
+    <MapContainer center={PALAZHI_CENTER} zoom={PALAZHI_ZOOM} scrollWheelZoom={scrollWheelZoom} className="h-64 w-full rounded-md">
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"

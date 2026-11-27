@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { KERALA_DISTRICTS } from "@/lib/kerala";
+import { PALAZHI_AREAS } from "@/lib/areas";
 import type { Locale } from "@/lib/i18n/config";
 import type { Dictionary } from "@/lib/i18n/dict";
 import type { ProjectStatus } from "@/lib/types";
@@ -29,8 +29,7 @@ const ALL = "__all__";
 
 /**
  * Writes every choice into the URL's search params rather than component
- * state, so the resulting view is a real, shareable, server-rendered URL -
- * see the Phase 1 plan's routes table. Selects navigate immediately; the
+ * state, so the resulting view is a real, shareable, server-rendered URL. Selects navigate immediately; the
  * text search waits for form submit so every keystroke doesn't push a URL.
  */
 export function FilterBar({
@@ -53,7 +52,7 @@ export function FilterBar({
     } else {
       params.set(key, value);
     }
-    router.push(`/${locale}/projects${params.toString() ? `?${params.toString()}` : ""}`);
+    router.push(`/${locale}/issues${params.toString() ? `?${params.toString()}` : ""}`);
   }
 
   function handleSearchSubmit(e: React.FormEvent) {
@@ -62,6 +61,56 @@ export function FilterBar({
   }
 
   const hasFilters = searchParams.toString().length > 0;
+
+  // Base UI's <SelectValue> renders the raw value unless the root is given
+  // `items`, so every select gets its value→label list here.
+  const filters: {
+    key: string;
+    label: string;
+    fallback: string;
+    items: { value: string; label: string }[];
+  }[] = [
+    {
+      key: "area",
+      label: dict.projects.filter_area,
+      fallback: ALL,
+      items: [
+        { value: ALL, label: dict.projects.filter_all_areas },
+        ...PALAZHI_AREAS.map((d) => ({
+          value: d.slug,
+          label: locale === "ml" ? d.ml : d.en,
+        })),
+      ],
+    },
+    {
+      key: "status",
+      label: dict.projects.filter_status,
+      fallback: ALL,
+      items: [
+        { value: ALL, label: dict.projects.filter_all_statuses },
+        ...STATUSES.map((s) => ({ value: s, label: dict.status[s] })),
+      ],
+    },
+    {
+      key: "department",
+      label: dict.projects.filter_department,
+      fallback: ALL,
+      items: [
+        { value: ALL, label: dict.projects.filter_all_departments },
+        ...departments.map((dep) => ({ value: dep, label: dep })),
+      ],
+    },
+    {
+      key: "sort",
+      label: dict.projects.filter_sort,
+      fallback: "newest",
+      items: [
+        { value: "newest", label: dict.projects.sort_newest },
+        { value: "days_desc", label: dict.projects.sort_days_desc },
+        { value: "cost_desc", label: dict.projects.sort_cost_desc },
+      ],
+    },
+  ];
 
   return (
     <div className="flex flex-col gap-4 rounded-xl border bg-card p-4">
@@ -78,77 +127,31 @@ export function FilterBar({
       </form>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Select
-          value={searchParams.get("district") ?? ALL}
-          onValueChange={(v) => updateParam("district", v ?? ALL)}
-        >
-          <SelectTrigger aria-label={dict.projects.filter_district}>
-            <SelectValue placeholder={dict.projects.filter_district} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>{dict.projects.filter_all_districts}</SelectItem>
-            {KERALA_DISTRICTS.map((d) => (
-              <SelectItem key={d.slug} value={d.slug}>
-                {locale === "ml" ? d.ml : d.en}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={searchParams.get("status") ?? ALL}
-          onValueChange={(v) => updateParam("status", v ?? ALL)}
-        >
-          <SelectTrigger aria-label={dict.projects.filter_status}>
-            <SelectValue placeholder={dict.projects.filter_status} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>{dict.projects.filter_all_statuses}</SelectItem>
-            {STATUSES.map((s) => (
-              <SelectItem key={s} value={s}>
-                {dict.status[s]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={searchParams.get("department") ?? ALL}
-          onValueChange={(v) => updateParam("department", v ?? ALL)}
-        >
-          <SelectTrigger aria-label={dict.projects.filter_department}>
-            <SelectValue placeholder={dict.projects.filter_department} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>{dict.projects.filter_all_departments}</SelectItem>
-            {departments.map((dep) => (
-              <SelectItem key={dep} value={dep}>
-                {dep}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={searchParams.get("sort") ?? "newest"}
-          onValueChange={(v) => updateParam("sort", v ?? "newest")}
-        >
-          <SelectTrigger aria-label={dict.projects.filter_sort}>
-            <SelectValue placeholder={dict.projects.filter_sort} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="newest">{dict.projects.sort_newest}</SelectItem>
-            <SelectItem value="days_desc">{dict.projects.sort_days_desc}</SelectItem>
-            <SelectItem value="cost_desc">{dict.projects.sort_cost_desc}</SelectItem>
-            <SelectItem value="seen_desc">{dict.projects.sort_seen_desc}</SelectItem>
-          </SelectContent>
-        </Select>
+        {filters.map((f) => (
+          <Select
+            key={f.key}
+            items={f.items}
+            value={searchParams.get(f.key) ?? f.fallback}
+            onValueChange={(v) => updateParam(f.key, v ?? f.fallback)}
+          >
+            <SelectTrigger aria-label={f.label} className="w-full">
+              <SelectValue placeholder={f.label} />
+            </SelectTrigger>
+            <SelectContent>
+              {f.items.map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ))}
       </div>
 
       {hasFilters && (
         <button
           type="button"
-          onClick={() => router.push(`/${locale}/projects`)}
+          onClick={() => router.push(`/${locale}/issues`)}
           className="self-start text-sm text-muted-foreground underline-offset-4 hover:underline"
         >
           {dict.projects.filter_clear}

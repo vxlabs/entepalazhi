@@ -2,60 +2,52 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { NOW, execute, isUuid, queryOne } from "@/lib/db";
+import { parsePendingPhotoPaths } from "@/lib/data/admin";
+import { promotePendingPhoto } from "@/lib/uploads";
 import { writeAuditLog } from "@/lib/audit";
 import { rejectSubmissionSchema } from "@/lib/schemas";
 
 /**
- * Approves a pending submission into the editor: moves any pending photos
- * from pending-photos into project-photos (copy + delete original, per
- * the plan - "approval copies the object across and deletes the pending
- * original"), creates the project_media rows those photos didn't have
- * yet (see the pending_photo_paths comment in 0002_admin.sql), and
- * redirects the caller to /admin/projects/[id] to enrich and publish.
- * Does NOT set is_published - that's a deliberate step in the editor.
+ * Accepts a pending report into the editor: moves its photos out of the
+ * private pending folder into the public one, creates the project_media
+ * rows for them, and leaves the caller to open /admin/projects/[id] to
+ * check the facts and publish. Does NOT publish - that stays a deliberate
+ * step in the editor, so nothing a visitor sent goes public unreviewed.
  */
 export async function approveSubmission(projectId: string): Promise<{ ok: boolean; error?: string }> {
   const actor = await requireAdmin();
-  const supabase = createAdminClient();
+  if (!isUuid(projectId)) return { ok: false, error: "Unknown submission." };
 
-  const { data: submitter, error: submitterError } = await supabase
-    .from("project_submitters")
-    .select("id, pending_photo_paths")
-    .eq("project_id", projectId)
-    .maybeSingle();
-  if (submitterError) return { ok: false, error: submitterError.message };
+  const submitter = await queryOne<{ id: string; pending_photo_paths: string }>(
+    "select id, pending_photo_paths from project_submitters where project_id = @project_id",
+    { project_id: projectId },
+  );
 
-  const pendingPaths = submitter?.pending_photo_paths ?? [];
   const movedPaths: string[] = [];
-
-  for (const pendingPath of pendingPaths) {
-    const filename = pendingPath.split("/").pop() ?? pendingPath;
-    const destPath = `${projectId}/${filename}`;
-
-    const { data: fileData, error: downloadError } = await supabase.storage
-      .from("pending-photos")
-      .download(pendingPath);
-    if (downloadError || !fileData) continue;
-
-    const { error: uploadError } = await supabase.storage
-      .from("project-photos")
-      .upload(destPath, fileData, { upsert: true });
-    if (uploadError) continue;
-
-    await supabase.storage.from("pending-photos").remove([pendingPath]);
-    movedPaths.push(destPath);
+  for (const pendingPath of parsePendingPhotoPaths(submitter?.pending_photo_paths)) {
+    const publicPath = await promotePendingPhoto(pendingPath, projectId);
+    if (publicPath) movedPaths.push(publicPath);
   }
 
-  if (movedPaths.length > 0) {
-    const { error: mediaError } = await supabase
-      .from("project_media")
-      .insert(movedPaths.map((storage_path, i) => ({ project_id: projectId, storage_path, sort_order: i })));
-    if (mediaError) return { ok: false, error: mediaError.message };
-  }
-
-  if (submitter) {
-    await supabase.from("project_submitters").update({ pending_photo_paths: [] }).eq("id", submitter.id);
+  try {
+    const existing = await queryOne<{ n: number }>(
+      "select count(*) as n from project_media where project_id = @project_id",
+      { project_id: projectId },
+    );
+    const offset = existing?.n ?? 0;
+    for (const [i, storagePath] of movedPaths.entries()) {
+      await execute(
+        "insert into project_media (project_id, storage_path, sort_order) values (@project_id, @storage_path, @sort_order)",
+        { project_id: projectId, storage_path: storagePath, sort_order: offset + i },
+      );
+    }
+    if (submitter) {
+      await execute("update project_submitters set pending_photo_paths = '[]' where id = @id", { id: submitter.id });
+    }
+  } catch (error) {
+    console.error("approveSubmission failed:", error);
+    return { ok: false, error: "Could not accept this submission. Please try again." };
   }
 
   await writeAuditLog({
@@ -74,14 +66,17 @@ export async function rejectSubmission(formData: FormData): Promise<{ ok: boolea
   const parsed = rejectSubmissionSchema.safeParse(Object.fromEntries(formData.entries()));
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message };
 
-  const supabase = createAdminClient();
-  // No hard deletes anywhere in this app - a rejected lead archives, it
-  // doesn't disappear, so there's still a record if the same tip resurfaces.
-  const { error } = await supabase
-    .from("projects")
-    .update({ archived_at: new Date().toISOString() })
-    .eq("id", parsed.data.project_id);
-  if (error) return { ok: false, error: error.message };
+  // No hard deletes: a rejected report is archived, so there is still a
+  // record if the same tip comes in again.
+  try {
+    await execute(
+      `update projects set archived_at = ${NOW}, updated_at = ${NOW}, updated_by = @actor where id = @id`,
+      { id: parsed.data.project_id, actor: actor.email },
+    );
+  } catch (error) {
+    console.error("rejectSubmission failed:", error);
+    return { ok: false, error: "Could not reject this submission." };
+  }
 
   await writeAuditLog({
     actorEmail: actor.email,
@@ -96,13 +91,20 @@ export async function rejectSubmission(formData: FormData): Promise<{ ok: boolea
 
 export async function archiveProject(projectId: string): Promise<{ ok: boolean; error?: string }> {
   const actor = await requireAdmin();
-  const supabase = createAdminClient();
+  if (!isUuid(projectId)) return { ok: false, error: "Unknown issue." };
 
-  const { error } = await supabase
-    .from("projects")
-    .update({ archived_at: new Date().toISOString(), is_published: false })
-    .eq("id", projectId);
-  if (error) return { ok: false, error: error.message };
+  try {
+    await execute(
+      `update projects
+          set archived_at = ${NOW}, is_published = 0,
+              updated_at = ${NOW}, updated_by = @actor
+        where id = @id`,
+      { id: projectId, actor: actor.email },
+    );
+  } catch (error) {
+    console.error("archiveProject failed:", error);
+    return { ok: false, error: "Could not archive this issue." };
+  }
 
   await writeAuditLog({ actorEmail: actor.email, action: "archive_project", projectId });
 

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { Geist, Geist_Mono, Noto_Sans_Malayalam } from "next/font/google";
 import "../globals.css";
 import { DEFAULT_LOCALE, LOCALES, isLocale, type Locale } from "@/lib/i18n/config";
@@ -33,6 +34,13 @@ export async function generateStaticParams() {
 // next.config.ts's globalNotFound comment).
 export const dynamicParams = false;
 
+// Every public page reads from the database, so pages are rendered when
+// requested rather than at build time: the build (and the Docker image)
+// must not need a running database. The two reads that happen on nearly
+// every page - site settings and the home page totals - are cached in
+// lib/data (unstable_cache) and cleared by the admin actions on save.
+export const dynamic = "force-dynamic";
+
 type Props = {
   children: React.ReactNode;
   params: Promise<{ locale: string }>;
@@ -52,16 +60,18 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 /**
  * This IS the app's root layout (it renders <html>/<body>), nested under
  * the [locale] dynamic segment rather than at app/layout.tsx - the pattern
- * Next.js documents for i18n root layouts. app/admin (Phase 2) is a
+ * Next.js documents for i18n root layouts. app/admin is a
  * separate root layout of its own; see next.config.ts's
  * experimental.globalNotFound for why that split needs a global 404.
  */
 export default async function LocaleLayout({ children, params }: Props) {
   const { locale: rawLocale } = await params;
-  // dynamicParams = false guarantees only values from generateStaticParams
-  // reach here at runtime; this fallback exists purely so `locale` below is
-  // typed as Locale, not string.
-  const locale: Locale = isLocale(rawLocale) ? rawLocale : DEFAULT_LOCALE;
+  // A single unprefixed segment (/issues, /about) matches [locale] ahead of
+  // app/(bare-redirects)/[...path], and with force-dynamic, dynamicParams =
+  // false does not stop it reaching here in production. Treat it as a bare
+  // path: /issues -> /ml/issues (an unknown one, e.g. /fr, then 404s there).
+  if (!isLocale(rawLocale)) redirect(`/${DEFAULT_LOCALE}/${encodeURIComponent(rawLocale)}`);
+  const locale: Locale = rawLocale;
   // support_enabled gates the nav/footer link and /support itself (see
   // that page's notFound() call) - checked here, once, rather than in
   // each of header/footer/page, since it's the same read either way.

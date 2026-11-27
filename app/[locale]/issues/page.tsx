@@ -23,7 +23,6 @@ const VALID_SORTS: NonNullable<ProjectListFilters["sort"]>[] = [
   "newest",
   "days_desc",
   "cost_desc",
-  "seen_desc",
 ];
 
 function first(value: string | string[] | undefined): string | undefined {
@@ -35,7 +34,7 @@ async function resolveFilters(searchParams: Props["searchParams"]): Promise<Proj
   const status = first(sp.status);
   const sort = first(sp.sort);
   return {
-    district: first(sp.district),
+    area: first(sp.area),
     status: status && (VALID_STATUSES as string[]).includes(status) ? (status as ProjectStatus) : undefined,
     department: first(sp.department),
     q: first(sp.q),
@@ -49,17 +48,16 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
   const dict = getDictionary(locale);
   const filters = await resolveFilters(searchParams);
   const hasFilters = Boolean(
-    filters.district || filters.status || filters.department || filters.q || filters.sort,
+    filters.area || filters.status || filters.department || filters.q || filters.sort,
   );
-  const pathname = `/${locale}/projects`;
+  const pathname = `/${locale}/issues`;
 
   return {
     title: dict.projects.title,
     description: dict.site.tagline,
     // Arbitrary filter/search/sort combinations are real, shareable pages,
-    // but not ones worth Google's crawl budget - the 14 district pages are
-    // the indexable filter surface instead. See the Phase 1 plan's
-    // "faceted-nav control" note.
+    // but not ones worth Google's crawl budget - the area pages are
+    // the indexable filter surface instead.
     robots: hasFilters ? { index: false, follow: true } : undefined,
     alternates: {
       canonical: pathname,

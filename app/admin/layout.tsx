@@ -18,7 +18,7 @@ const notoMalayalam = Noto_Sans_Malayalam({
 });
 
 export const metadata: Metadata = {
-  title: { default: "Admin | Aarekettikkan", template: "%s | Aarekettikkan admin" },
+  title: { default: "Admin | Ente Palazhi", template: "%s | Ente Palazhi admin" },
   robots: { index: false, follow: false },
 };
 

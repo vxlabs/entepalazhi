@@ -7,7 +7,7 @@ import { approveSubmission, rejectSubmission, archiveProject } from "@/actions/a
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { getDistrict } from "@/lib/kerala";
+import { getWard, telHref } from "@/lib/directory";
 import type { PendingSubmission } from "@/lib/data/admin";
 
 export function QueueCard({ submission }: { submission: PendingSubmission }) {
@@ -17,6 +17,8 @@ export function QueueCard({ submission }: { submission: PendingSubmission }) {
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
   const router = useRouter();
+  const ward = getWard(submission.ward_no);
+  const hasPin = submission.latitude != null && submission.longitude != null;
 
   function handleApprove() {
     startTransition(async () => {
@@ -51,7 +53,7 @@ export function QueueCard({ submission }: { submission: PendingSubmission }) {
         <div>
           <h3 className="font-medium">{submission.name_en}</h3>
           <p className="text-sm text-muted-foreground">
-            {getDistrict(submission.district)?.en ?? submission.district} · submitted {submission.submitted_on} ·{" "}
+            {ward ? `Ward ${ward.no} · ${ward.name}` : "Ward not known"} · {hasPin ? "pin placed" : "no pin"} · submitted {submission.submitted_on} ·{" "}
             {submission.photoCount} photo{submission.photoCount === 1 ? "" : "s"}
           </p>
         </div>
@@ -71,9 +73,13 @@ export function QueueCard({ submission }: { submission: PendingSubmission }) {
       </button>
       {showContact && (
         <div className="mt-1 space-y-0.5 rounded-md bg-muted/50 p-2 text-sm">
-          <p>{submission.submitter?.name || "(no name given)"}</p>
+          {/* The form now asks for a mobile number only, and that is optional;
+              name, email and note appear on reports sent before the change. */}
+          {submission.submitter?.phone
+            ? <p><a href={telHref(submission.submitter.phone)} className="underline underline-offset-4">{submission.submitter.phone}</a></p>
+            : <p className="text-muted-foreground">No mobile number left</p>}
+          {submission.submitter?.name && <p>{submission.submitter.name}</p>}
           {submission.submitter?.email && <p>{submission.submitter.email}</p>}
-          {submission.submitter?.phone && <p>{submission.submitter.phone}</p>}
           {submission.submitter?.note && <p className="text-muted-foreground">{submission.submitter.note}</p>}
         </div>
       )}

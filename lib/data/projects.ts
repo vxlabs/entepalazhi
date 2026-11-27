@@ -1,117 +1,127 @@
+import "server-only";
 import { unstable_cache } from "next/cache";
-import { createAnonClient } from "@/lib/supabase/server";
-import type { Project, ProjectListFilters, ProjectMedia, ProjectUpdate } from "@/lib/types";
+import { likePattern, query, queryOne, type SqlParams } from "@/lib/db";
+import type { Project, ProjectListFilters, ProjectListItem, ProjectMedia, ProjectUpdate } from "@/lib/types";
 
+/**
+ * Public reads. The database does not enforce visibility, so EVERY query
+ * in this file must carry this filter (directly, or through a join to
+ * projects for child rows). Unpublished and archived rows are read only
+ * from lib/data/admin.ts.
+ */
+const VISIBLE = "p.is_published = 1 and p.archived_at is null";
 
-export async function getFilteredProjects(filters: ProjectListFilters): Promise<Project[]> {
-  const supabase = createAnonClient();
-  let query = supabase.from("projects").select("*").eq("is_published", true).is("archived_at", null);
+/**
+ * `select ... from` for the list pages: each issue with its first photo
+ * (same order as getProjectMedia) and its most recent update (same order
+ * as getProjectUpdates). Both hang off a row that already passed VISIBLE.
+ */
+const LIST_SELECT = `
+  select p.*,
+         cover.storage_path as cover_path,
+         cover.caption_en   as cover_caption_en,
+         cover.caption_ml   as cover_caption_ml,
+         latest.happened_on as latest_update_on,
+         latest.title_en    as latest_update_title_en,
+         latest.title_ml    as latest_update_title_ml
+    from projects p
+    left join project_media cover on cover.id = (
+           select m.id from project_media m
+            where m.project_id = p.id
+            order by m.sort_order asc, m.created_at asc limit 1)
+    left join project_updates latest on latest.id = (
+           select u.id from project_updates u
+            where u.project_id = p.id
+            order by u.happened_on desc, u.created_at desc limit 1)`;
 
-  if (filters.district) query = query.eq("district", filters.district);
-  if (filters.status) query = query.eq("status", filters.status);
-  if (filters.department) query = query.eq("department", filters.department);
+export async function getFilteredProjects(filters: ProjectListFilters): Promise<ProjectListItem[]> {
+  const where = [VISIBLE];
+  const params: SqlParams = {};
+
+  if (filters.area) {
+    where.push("p.area = @area");
+    params.area = filters.area;
+  }
+  if (filters.status) {
+    where.push("p.status = @status");
+    params.status = filters.status;
+  }
+  if (filters.department) {
+    where.push("p.department = @department");
+    params.department = filters.department;
+  }
   if (filters.q && filters.q.trim().length > 0) {
-    const term = filters.q.trim().replace(/[%_]/g, "");
-    query = query.or(`name_en.ilike.%${term}%,name_ml.ilike.%${term}%`);
+    where.push("(p.name_en like @q escape '\\' or p.name_ml like @q escape '\\')");
+    params.q = likePattern(filters.q.trim());
   }
 
+  let orderBy: string;
   switch (filters.sort) {
     case "days_desc":
       // Older reported_on (or, absent that, submitted_on) = more days
-      // pending. Nulls (leads with no reported_on yet) sort last within
-      // this key, submitted_on breaks ties for those.
-      query = query
-        .order("reported_on", { ascending: true, nullsFirst: false })
-        .order("submitted_on", { ascending: true });
+      // outstanding. Rows with no reported_on yet sort last.
+      orderBy = "case when p.reported_on is null then 1 else 0 end, p.reported_on asc, p.submitted_on asc";
       break;
     case "cost_desc":
-      query = query.order("cost_inr", { ascending: false, nullsFirst: false });
-      break;
-    case "seen_desc":
-      query = query.order("seen_count", { ascending: false });
+      orderBy = "case when p.cost_inr is null then 1 else 0 end, p.cost_inr desc";
       break;
     case "newest":
     default:
-      query = query.order("submitted_on", { ascending: false });
+      orderBy = "p.submitted_on desc, p.created_at desc";
   }
 
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data ?? []) as Project[];
+  return query<ProjectListItem>(`${LIST_SELECT} where ${where.join(" and ")} order by ${orderBy}`, params);
 }
 
 export async function getProjectBySlug(slug: string): Promise<Project | null> {
-  const supabase = createAnonClient();
-  const { data, error } = await supabase
-    .from("projects")
-    .select("*")
-    .eq("slug", slug)
-    .eq("is_published", true).is("archived_at", null)
-    .maybeSingle();
-  if (error) throw error;
-  return (data as Project | null) ?? null;
+  return queryOne<Project>(`select p.* from projects p where p.slug = @slug and ${VISIBLE}`, { slug });
 }
 
 export async function getProjectUpdates(projectId: string): Promise<ProjectUpdate[]> {
-  const supabase = createAnonClient();
-  const { data, error } = await supabase
-    .from("project_updates")
-    .select("*")
-    .eq("project_id", projectId)
-    .order("happened_on", { ascending: false });
-  if (error) throw error;
-  return (data ?? []) as ProjectUpdate[];
+  return query<ProjectUpdate>(
+    `select u.* from project_updates u
+       join projects p on p.id = u.project_id
+      where u.project_id = @project_id and ${VISIBLE}
+      order by u.happened_on desc, u.created_at desc`,
+    { project_id: projectId },
+  );
 }
 
 export async function getProjectMedia(projectId: string): Promise<ProjectMedia[]> {
-  const supabase = createAnonClient();
-  const { data, error } = await supabase
-    .from("project_media")
-    .select("*")
-    .eq("project_id", projectId)
-    .order("sort_order", { ascending: true });
-  if (error) throw error;
-  return (data ?? []) as ProjectMedia[];
+  return query<ProjectMedia>(
+    `select m.* from project_media m
+       join projects p on p.id = m.project_id
+      where m.project_id = @project_id and ${VISIBLE}
+      order by m.sort_order asc`,
+    { project_id: projectId },
+  );
 }
 
-/** Every published slug, for generateStaticParams and the sitemap. */
+/** Every published slug, for the sitemap. */
 export async function getAllPublishedSlugs(): Promise<string[]> {
-  const supabase = createAnonClient();
-  const { data, error } = await supabase.from("projects").select("slug").eq("is_published", true).is("archived_at", null);
-  if (error) throw error;
-  return (data ?? []).map((row) => row.slug as string);
+  const rows = await query<{ slug: string }>(`select p.slug from projects p where ${VISIBLE}`);
+  return rows.map((row) => row.slug);
 }
 
-export async function getRecentProjects(limit: number): Promise<Project[]> {
-  const supabase = createAnonClient();
-  const { data, error } = await supabase
-    .from("projects")
-    .select("*")
-    .eq("is_published", true).is("archived_at", null)
-    .order("submitted_on", { ascending: false })
-    .limit(limit);
-  if (error) throw error;
-  return (data ?? []) as Project[];
+export async function getRecentProjects(limit: number): Promise<ProjectListItem[]> {
+  return query<ProjectListItem>(
+    `${LIST_SELECT} where ${VISIBLE} order by p.submitted_on desc, p.created_at desc limit @limit`,
+    { limit },
+  );
 }
 
-export function getProjectsByDistrict(district: string): Promise<Project[]> {
-  return getFilteredProjects({ district, sort: "newest" });
+export function getProjectsByArea(area: string): Promise<ProjectListItem[]> {
+  return getFilteredProjects({ area, sort: "newest" });
 }
 
-/** Distinct, non-null department values among published projects, for the filter dropdown. */
+/** Distinct, non-empty department values among published issues, for the filter dropdown. */
 export async function getDistinctDepartments(): Promise<string[]> {
-  const supabase = createAnonClient();
-  const { data, error } = await supabase
-    .from("projects")
-    .select("department")
-    .eq("is_published", true).is("archived_at", null)
-    .not("department", "is", null);
-  if (error) throw error;
-  const set = new Set<string>();
-  for (const row of data ?? []) {
-    if (typeof row.department === "string" && row.department.trim()) set.add(row.department);
-  }
-  return Array.from(set).sort();
+  const rows = await query<{ department: string }>(
+    `select distinct p.department from projects p
+      where ${VISIBLE} and p.department is not null and ltrim(rtrim(p.department)) <> ''
+      order by p.department`,
+  );
+  return rows.map((row) => row.department);
 }
 
 export type StatsSummary = {
@@ -122,13 +132,9 @@ export type StatsSummary = {
 };
 
 async function computeStatsSummary(): Promise<StatsSummary> {
-  const supabase = createAnonClient();
-  const { data, error } = await supabase
-    .from("projects")
-    .select("cost_inr, reported_on, submitted_on, resolved_on, status")
-    .eq("is_published", true).is("archived_at", null);
-  if (error) throw error;
-  const rows = data ?? [];
+  const rows = await query<Pick<Project, "cost_inr" | "reported_on" | "submitted_on" | "resolved_on" | "status">>(
+    `select p.cost_inr, p.reported_on, p.submitted_on, p.resolved_on, p.status from projects p where ${VISIBLE}`,
+  );
 
   const { differenceInCalendarDays, parseISO } = await import("date-fns");
   const { toZonedTime } = await import("date-fns-tz");
@@ -154,7 +160,8 @@ async function computeStatsSummary(): Promise<StatsSummary> {
   };
 }
 
-/** Revalidated hourly rather than recomputed per request - see the Phase 1 plan. */
+/** Recomputed at most hourly rather than per request; admin edits clear it
+ * straight away (see revalidatePublicRoutes in lib/revalidate.ts). */
 export const getStatsSummary = unstable_cache(computeStatsSummary, ["stats-summary"], {
   revalidate: 3600,
   tags: ["stats-summary"],

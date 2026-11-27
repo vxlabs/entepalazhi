@@ -1,91 +1,95 @@
-# Aarekettikkan
+# Ente Palazhi (web)
 
-A public accountability record for stalled/abandoned government projects in Kerala. See `there-is-a-social-floofy-star.md` (Phase 1) and `there-is-a-social-floofy-star-phase-2.md` (Phase 2) for the full plan.
+The public site for **entepalazhi.in**: a dated public record of civic issues in Palazhi, Kozhikode (Olavanna Grama Panchayat). What the platform is and its editorial rules are in [`../CLAUDE.md`](../CLAUDE.md); read that first.
 
-**Status: Phase 1 + Phase 2 complete.** Public bilingual site, public submissions (`/report`), full admin dashboard (triage, moderation queue, sectioned project editor, settings), "I've seen this too", and a gated support/contact page.
+Next.js 16 (App Router) + SQLite. No outside services are required: the database (one SQLite file), admin login and photo storage all run inside one container on your own server.
 
-## Stack
+This codebase started as a copy of the `aarekettikkan` pilot. It is independent of it: separate git history from the clone point, separate database, no shared configuration.
 
-Next.js 16 (App Router, Turbopack) + React 19 + TypeScript, Tailwind CSS v4 + shadcn/ui, Supabase (Postgres + RLS + Auth + Storage), react-leaflet/OpenStreetMap, date-fns-tz (Asia/Kolkata), zod v4.
+## What is here today
 
-**Note on this Next.js version:** `middleware.ts` is deprecated and renamed to `proxy.ts` (exporting a `proxy` function) — see `proxy.ts`'s own comment. If you're used to older Next.js docs/training data, check `node_modules/next/dist/docs/` before assuming a convention still applies; see `AGENTS.md`.
+- Public, bilingual (`/ml` default, `/en`): home, issue list with area / status / department filters and search, a page per area, issue pages with a day counter, photos, map and dated updates, a report form, an about page, and an optional support page.
+- Admin (`/admin`, English): email + password sign-in, review queue for public reports, issue editor, updates, photos, site settings, audit log.
 
-## Local development
+Not built yet: the noticeboard and the directory (rentals, businesses).
 
-Requires Docker (for the local Supabase stack) and the Supabase CLI (`npx supabase`, no global install needed).
+## Run it locally
+
+Needs Node 22 and pnpm. There is no database server: SQLite is a file, created at `DATABASE_PATH` (`./data/entepalazhi.db`).
 
 ```bash
 pnpm install
-npx supabase start      # first run pulls images and applies supabase/migrations + seed.sql
+cp .env.example .env.local                           # defaults work as they are
+node scripts/migrate.mjs --seed                      # tables + clearly labelled sample issues
+node scripts/create-admin.mjs you@example.com        # asks for a password
+pnpm dev                                             # http://localhost:3000
 ```
 
-`supabase start` prints an `ANON_KEY`, `SERVICE_ROLE_KEY`, and `API_URL` (normally `http://127.0.0.1:54321`). Copy `.env.example` to `.env.local` and fill in:
+To start again from scratch, stop `pnpm dev` and delete the `data/` folder.
 
-- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` — from `supabase start`'s output
-- `NEXT_PUBLIC_SITE_URL=http://localhost:3000`
-- `SUPABASE_SERVICE_ROLE_KEY` — from `supabase start`'s output (`SERVICE_ROLE_KEY`)
-- `ADMIN_EMAILS` — your own email, comma-separated if more than one
+Checks before committing: `npx tsc --noEmit`, `pnpm lint`, `pnpm build`.
+
+## Where things are
+
+| What | Where |
+|---|---|
+| Site name, domain, Instagram account | `lib/site-config.ts` |
+| All public wording, English and Malayalam | `lib/i18n/dict.ts` |
+| The list of areas within Palazhi, map centre | `lib/areas.ts` |
+| Colours (the notice-board yellow is `board-*`) | `app/globals.css` |
+| Database schema | `db/migrations/*.sql` (applied by `scripts/migrate.mjs`) |
+| Every database query | `lib/data/` (reads), `actions/` (writes), via `lib/db.ts` |
+| Photo storage on disk | `lib/uploads.ts`, served by `app/media/` |
+| Admin sign-in and sessions | `lib/auth.ts`, `actions/admin/auth.ts` |
+
+Things to know before changing code:
+
+- **The database does not hide unpublished rows for you.** Public pages must read only through `lib/data/projects.ts`, where every query carries `is_published = 1 and archived_at is null`. Anything that reads drafts or contact details belongs in `lib/data/admin.ts`, behind `requireAdmin()`.
+- **Internal names say `projects`, the site says "issues".** The table, types and admin URLs kept the pilot's name; public URLs are `/issues`.
+- **Schema changes are new files.** Add `db/migrations/0002_something.sql`; never edit a migration that has already run. Each file runs in one transaction. SQLite conventions: ids are UUID text, timestamps are ISO-8601 UTC text (use `NOW` from `lib/db.ts` for "now"), dates are `YYYY-MM-DD` text, and booleans are `boolean` columns holding 0/1.
+- **Areas are a list in code**, not a database constraint. Edit `lib/areas.ts`; keep a slug unchanged once issues are filed under it.
+- **Photos are re-encoded on upload.** `lib/uploads.ts` converts every photo to WebP (at most 2048 px on the long side) and drops its metadata, GPS position included, before writing it. Pages then show them through `next/image`, which serves a copy resized for the visitor's screen.
+- This Next.js version differs from older ones (`proxy.ts` instead of `middleware.ts`, two root layouts). See `AGENTS.md`.
+
+## Hosting (Linux server, Docker)
 
 ```bash
-pnpm dev
+cp .env.example .env       # optional: IP_HASH_SALT, and NEXT_PUBLIC_SITE_URL if not https://entepalazhi.in
+docker compose up -d --build
+docker compose exec web node scripts/create-admin.mjs you@example.com
 ```
 
-Visit `http://localhost:3000` (redirects to `/en`). Supabase Studio is at `http://127.0.0.1:54323`; the local email catcher (for magic-link sign-in) is at `http://127.0.0.1:54324`.
+- The site listens on `127.0.0.1:3000` only. Point your reverse proxy (nginx, Caddy, Coolify) at it with HTTPS, and pass the original `Host` and `X-Forwarded-For` / `X-Forwarded-Proto` headers: form submissions and the per-IP limits depend on them. Allow request bodies of at least 6 MB for photo uploads.
+- Database migrations run automatically each time the `web` container starts.
+- On the shared server, where Coolify's Traefik already owns ports 80/443, add the overlay: `docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d --build`. It routes entepalazhi.in through Traefik and gets a Let's Encrypt certificate.
+- To update: `git pull && docker compose up -d --build`.
 
-Admin magic links use PKCE, so open a fresh link in the same browser profile and origin that requested it. `localhost` and `127.0.0.1` have separate cookie jars; the sign-in callback automatically uses whichever local origin you opened. Multiple pending links are supported; a used or expired link must be replaced with a new one.
+### Backups
 
-To stop the local stack: `npx supabase stop`.
+Two Docker volumes hold everything that cannot be rebuilt:
 
-### `431 Request Header Fields Too Large` in local development
+- `entepalazhi_db`: the database (`entepalazhi.db`).
+- `entepalazhi_uploads`: photos.
 
-Local Supabase sessions use cookies. If Firefox reports a `431` for a
-`/_next/static/...` file, open DevTools → Storage → Cookies →
-`http://localhost:3000` and delete the legacy cookies beginning with
-`sb-127-auth-token`, then sign in to `/admin` again. If the error remains,
-clear all localhost site data; that also signs out other local applications.
-
-## Handover runbook (real Supabase + Vercel project)
-
-1. Create a project at [supabase.com](https://supabase.com).
-2. In its SQL editor, run the migrations in numerical order (`0001_core.sql`, `0002_admin.sql`, then `0003_site_social_links.sql`). Run `supabase/seed.sql` too if you want sample data, or skip it once real projects exist.
-3. In Storage, confirm the two buckets from `0002_admin.sql` exist: `pending-photos` (private) and `project-photos` (public). The migration creates them via SQL, but double-check in the dashboard after running it.
-4. In Project Settings > API, copy the Project URL, `anon` `public` key, and `service_role` key.
-5. Import the repo into Vercel. Add every variable from `.env.example` to the Vercel project's environment variables, using the real values from steps 3–4, plus `ADMIN_EMAILS` set to the real admin's email(s) and `NEXT_PUBLIC_SITE_URL` set to the real deployed domain.
-6. In Supabase Auth settings, set the Site URL to the deployed domain and add a wildcard redirect URL covering `https://your-domain/admin/auth/callback**`. This permits Supabase's PKCE `sb_flow_id` query parameter on magic-link callbacks.
-7. Deploy. Sign in at `/admin/login` with an allowlisted email to confirm the magic link arrives and admin loads. Open the link in the same browser profile that requested it.
-
-### Ownership transfer
-
-Three steps, done independently: transfer the **GitHub repo**, the **Vercel project**, and the **Supabase organisation** to the new owner's accounts.
-
-### Free-tier caveats
-
-- **Supabase pauses free projects after 7 days of zero activity.** Real traffic prevents this; a twice-daily Vercel Cron Job hitting any page (e.g. `/en`) guarantees it without relying on visitors.
-- **Vercel Hobby is non-commercial.** Fine here — the site never collects money (see "Support page" below) — but ads or sponsorship later would require a paid plan.
-
-## Structure
-
-- `app/[locale]/` — the public bilingual site (`/en/...`, `/ml/...`), including `/report` (public submissions) and `/support` (gated contact page). This *is* the app's root layout.
-- `app/admin/` — a second, English-only root layout: `/admin` (triage home), `/admin/queue` (moderation), `/admin/projects` + `/admin/projects/[id]` (list + sectioned editor), `/admin/settings`, `/admin/login`.
-- `app/(bare-redirects)/` — redirects unprefixed paths to `/en/...`.
-- `app/global-not-found.tsx` — 404 for URLs matching no route at all.
-- `app/api/seen/route.ts` — the "I've seen this too" endpoint.
-- `proxy.ts` — admin-route redirect convenience only, **not** the authorization boundary (see its comment and `lib/auth.ts`).
-- `lib/data/projects.ts` — public read-only data access (anon key, RLS-gated).
-- `lib/data/admin.ts`, `lib/data/settings.ts` — admin-side reads (service-role key).
-- `lib/supabase/server.ts` (anon, cookie-free), `lib/supabase/admin.ts` (service-role, server-only), `lib/supabase/auth-server.ts` (cookie-aware, admin session), `lib/supabase/browser.ts` (anon, browser — signed-upload PUTs only).
-- `lib/auth.ts` — `requireAdmin()`/`requireAdminPage()`, the actual authorization check re-verified in every admin server action and page.
-- `lib/schemas.ts` — zod schemas shared by every form and its server action.
-- `actions/` — all Server Actions, split into public (`submit-project.ts`, `uploads.ts`, `maps.ts`) and `actions/admin/*` (approve/reject, project edits, timeline, media, settings, auth).
-- `lib/i18n/dict.ts` — all UI copy, English and Malayalam, in one file.
-- `supabase/migrations/0001_core.sql`, `0002_admin.sql` — schema + RLS + storage buckets. `supabase/seed.sql` — sample data for local dev.
-
-## Checks
+Back up both on a schedule. Don't copy `entepalazhi.db` directly while the site is running, because recent writes can still be in the `-wal` file. Take a consistent copy with:
 
 ```bash
-npx tsc --noEmit
-npx eslint .
-pnpm build
+docker compose exec web node scripts/backup.mjs
 ```
 
-All three are clean as of Phase 2 completion. `npx supabase migration up` applies pending migrations to the local stack without resetting existing data; `npx supabase db reset` re-applies everything from scratch (destructive to local data).
+The copy is written to `backups/` inside the `db` volume; copy it off the server.
+
+A third volume, `entepalazhi_image-cache`, holds the resized copies of photos that the site makes on demand. It needs no backup: it refills by itself, and is capped at 500 MB (`images.maximumDiskCacheSize` in `next.config.ts`).
+
+### Photos stored before the WebP conversion
+
+Photos uploaded before uploads were converted to WebP are still JPEG or PNG on disk. To convert them once (back up the database and the uploads volume first; the originals are deleted):
+
+```bash
+docker compose exec web node scripts/convert-photos-to-webp.mjs --dry-run   # list what would change
+docker compose exec web node scripts/convert-photos-to-webp.mjs
+```
+
+### Admin accounts
+
+There is no sign-up page and no password reset email. To add an admin or reset a password, run `scripts/create-admin.mjs` again with the email; it also signs that account out everywhere.

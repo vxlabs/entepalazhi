@@ -2,23 +2,48 @@
 
 import { headers } from "next/headers";
 import { randomUUID } from "node:crypto";
-import { submissionSchema } from "@/lib/schemas";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { SUBMISSION_ERRORS, submissionSchema, type SubmissionError } from "@/lib/schemas";
+import { execute, insertRow } from "@/lib/db";
 import { checkSubmissionRateLimit } from "@/lib/ratelimit";
-import { getClientIp, hashIp } from "@/lib/fingerprint";
-import { parseMapsPin } from "@/lib/maps";
+import { getClientIp, hashIp } from "@/lib/client-ip";
+import { isPendingPath } from "@/lib/uploads";
 import { slugify } from "@/lib/utils";
+import { DEFAULT_LOCAL_BODY } from "@/lib/areas";
 
+/**
+ * Errors travel as codes (see SUBMISSION_ERRORS); the form turns them into
+ * sentences in the reader's language. `values` echoes back what was typed,
+ * because React clears a form's fields once its action has run.
+ */
 export type SubmitProjectState = {
   status: "idle" | "success" | "error";
-  message?: string;
-  fieldErrors?: Record<string, string>;
+  message?: SubmissionError;
+  fieldErrors?: Record<string, SubmissionError>;
+  values?: Record<string, string>;
 };
+
+const MAX_PHOTOS = 3;
+
+/** Stored for every public report; the area is chosen in the admin editor
+ * when the report is accepted. */
+const UNSORTED_AREA = "other";
+
+const isSubmissionError = (value: string): value is SubmissionError =>
+  (SUBMISSION_ERRORS as readonly string[]).includes(value);
+
+/** The typed text fields, to refill the form after an error. */
+function typedValues(formData: FormData): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const key of ["name_en", "description_en", "ward_no", "submitter_phone"]) {
+    const value = formData.get(key);
+    if (typeof value === "string") values[key] = value;
+  }
+  return values;
+}
 
 async function verifyTurnstile(token: string | null, ip: string): Promise<boolean> {
   const secret = process.env.TURNSTILE_SECRET_KEY;
-  // Env-gated: absent, the app skips Turnstile entirely, so handover works
-  // with only Supabase + Vercel accounts (no Cloudflare account required).
+  // Optional: when the secret is not set, Turnstile is skipped entirely.
   if (!secret) return true;
   if (!token) return false;
 
@@ -35,89 +60,103 @@ async function verifyTurnstile(token: string | null, ip: string): Promise<boolea
   }
 }
 
+/**
+ * A report from the public form. It is saved unpublished (a "lead") and
+ * shows up only in the admin review queue; nothing a visitor sends is
+ * visible on the site until an admin has checked and published it.
+ */
 export async function submitProject(
   _prevState: SubmitProjectState,
   formData: FormData,
 ): Promise<SubmitProjectState> {
   // Spam control #1 (free): honeypot. A real visitor never fills this in -
-  // it's visually hidden from sighted users and skipped by screen readers.
-  // Pretend success so a bot doesn't learn to look elsewhere.
+  // it is visually hidden and skipped by screen readers. Pretend success
+  // so a bot does not learn to look elsewhere.
   const honeypot = formData.get("website");
   if (typeof honeypot === "string" && honeypot.length > 0) {
     return { status: "success" };
   }
 
   const raw = Object.fromEntries(formData.entries());
-  const photoPaths = formData.getAll("photo_paths").filter((v): v is string => typeof v === "string");
+  // Only paths the upload endpoint itself could have produced are kept.
+  const photoPaths = formData
+    .getAll("photo_paths")
+    .filter((v): v is string => typeof v === "string" && isPendingPath(v))
+    .slice(0, MAX_PHOTOS);
   const parsed = submissionSchema.safeParse(raw);
 
+  const values = typedValues(formData);
+
+  const fieldErrors: Record<string, SubmissionError> = {};
   if (!parsed.success) {
-    const fieldErrors: Record<string, string> = {};
     for (const issue of parsed.error.issues) {
       const key = String(issue.path[0] ?? "form");
-      if (!fieldErrors[key]) fieldErrors[key] = issue.message;
+      if (!fieldErrors[key]) fieldErrors[key] = isSubmissionError(issue.message) ? issue.message : "generic";
     }
-    return { status: "error", message: "Please fix the highlighted fields.", fieldErrors };
+  }
+  // A report needs at least one photo: with no contact details required, the
+  // photograph is what lets it be checked.
+  if (photoPaths.length === 0) fieldErrors.photo_paths = "photo_missing";
+
+  if (!parsed.success || Object.keys(fieldErrors).length > 0) {
+    return { status: "error", message: "generic", fieldErrors, values };
   }
 
   const headersList = await headers();
   const ip = getClientIp(headersList);
   const ipHash = hashIp(ip);
 
-  // Spam control #2: Postgres-tracked IP rate limit.
+  // Spam control #2: per-IP daily limit.
   const withinLimit = await checkSubmissionRateLimit(ipHash);
   if (!withinLimit) {
-    return { status: "error", message: "Too many submissions from this connection today. Try again tomorrow." };
+    return { status: "error", message: "rate_limited", values };
   }
 
   // Spam control #3 (optional): Cloudflare Turnstile, only if configured.
   const turnstileOk = await verifyTurnstile(formData.get("cf-turnstile-response") as string | null, ip);
   if (!turnstileOk) {
-    return { status: "error", message: "Verification failed. Please try again." };
+    return { status: "error", message: "verification_failed", values };
   }
 
   const data = parsed.data;
-  const pin = data.latitude != null && data.longitude != null
-    ? { latitude: data.latitude, longitude: data.longitude }
-    : data.maps_url ? await parseMapsPin(data.maps_url) : null;
 
-  const supabase = createAdminClient();
-  const slug = `${slugify(data.name_en)}-${randomUUID().slice(0, 6)}`;
-
-  const { data: project, error: projectError } = await supabase
-    .from("projects")
-    .insert({
-      slug,
+  let projectId: string;
+  try {
+    projectId = await insertRow("projects", {
+      // slugify() keeps ASCII only, so a title typed in Malayalam leaves
+      // nothing behind - hence the fallback word.
+      slug: `${slugify(data.name_en) || "issue"}-${randomUUID().slice(0, 6)}`,
       name_en: data.name_en,
-      description_en: data.description_en ?? null,
-      district: data.district,
-      local_body: data.local_body ?? null,
-      department: data.department ?? null,
-      latitude: pin?.latitude ?? null,
-      longitude: pin?.longitude ?? null,
+      description_en: data.description_en,
+      area: UNSORTED_AREA,
+      local_body: DEFAULT_LOCAL_BODY,
+      ward_no: data.ward_no,
+      latitude: data.latitude,
+      longitude: data.longitude,
       source: "public",
       status: "lead",
       is_published: false,
-    })
-    .select("id, slug")
-    .single();
-
-  if (projectError || !project) {
-    return { status: "error", message: "Could not save your report. Please try again." };
+    });
+  } catch (error) {
+    console.error("submitProject failed:", error);
+    return { status: "error", message: "save_failed", values };
   }
 
-  const { error: submitterError } = await supabase.from("project_submitters").insert({
-    project_id: project.id,
-    name: data.submitter_name ?? null,
-    email: data.submitter_email || null,
-    phone: data.submitter_phone ?? null,
-    note: data.submitter_note ?? null,
-    ip_hash: ipHash,
-    pending_photo_paths: photoPaths,
-  });
-
-  if (submitterError) {
-    console.error("Failed to save project_submitters row:", submitterError);
+  // The form asks for a mobile number only; the name, email and note columns
+  // remain for reports sent before that change.
+  try {
+    await execute(
+      `insert into project_submitters (project_id, phone, ip_hash, pending_photo_paths)
+       values (@project_id, @phone, @ip_hash, @pending_photo_paths)`,
+      {
+        project_id: projectId,
+        phone: data.submitter_phone ?? null,
+        ip_hash: ipHash,
+        pending_photo_paths: JSON.stringify(photoPaths),
+      },
+    );
+  } catch (error) {
+    console.error("Failed to save project_submitters row:", error);
   }
 
   return { status: "success" };

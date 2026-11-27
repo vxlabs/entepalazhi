@@ -1,5 +1,7 @@
 "use client";
 
+import { BrandMark } from "@/components/brand-mark";
+import { SITE_CONFIG } from "@/lib/site-config";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ExternalLink } from "lucide-react";
@@ -7,9 +9,9 @@ import { ADMIN_NAV_ITEMS, ADMIN_NAV_SECTIONS, isAdminNavActive } from "@/lib/adm
 import { cn } from "@/lib/utils";
 
 /**
- * Mobile-first per the plan: a thumb-reachable bottom tab bar on phones,
+ * Mobile-first: a thumb-reachable bottom tab bar on phones,
  * widening to a left sidebar on desktop rather than a hamburger menu that
- * costs an extra tap on the device he'll actually use this on.
+ * costs an extra tap on the device this is actually used on.
  */
 export function AdminNav() {
   const pathname = usePathname();
@@ -51,12 +53,10 @@ export function AdminNav() {
           href="/admin"
           className="mb-2 flex items-center gap-3 rounded-xl px-2 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <span className="admin-gradient grid size-9 shrink-0 place-items-center rounded-lg text-lg font-black text-white shadow-sm" aria-hidden="true">
-            A
-          </span>
+          <BrandMark className="text-sm" />
           <span className="min-w-0">
-            <span className="block truncate text-sm font-semibold tracking-tight">Aarekettikkan</span>
-            <span className="block truncate text-xs text-muted-foreground">Creator dashboard</span>
+            <span className="block truncate text-sm font-semibold tracking-tight">{SITE_CONFIG.adminName}</span>
+            <span className="block truncate text-xs text-muted-foreground">Admin</span>
           </span>
         </Link>
 

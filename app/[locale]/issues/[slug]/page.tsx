@@ -10,30 +10,23 @@ import { ProjectMap } from "@/components/project-map";
 import { StatusBadge } from "@/components/status-badge";
 import { StatusTimeline } from "@/components/status-timeline";
 import { ShareButtons } from "@/components/share-buttons";
-import { SeenButton } from "@/components/seen-button";
 import { computeDayCounter, daysOverdue, formatDateIST } from "@/lib/dates";
 import { formatCostINR } from "@/lib/format";
-import { alternateLanguages, DEFAULT_LOCALE, LOCALES, isLocale, type Locale } from "@/lib/i18n/config";
+import { alternateLanguages, DEFAULT_LOCALE, isLocale, type Locale } from "@/lib/i18n/config";
 import { getDictionary, t } from "@/lib/i18n/dict";
-import { getDistrict } from "@/lib/kerala";
+import { getArea } from "@/lib/areas";
+import { DIRECTORY_AS_OF, WARDS_SOURCE_URL, getWard } from "@/lib/directory";
 import { pick } from "@/lib/pick";
 import { SITE_CONFIG } from "@/lib/site-config";
 import { getPublicPhotoUrl } from "@/lib/storage";
 import {
-  getAllPublishedSlugs,
   getProjectBySlug,
   getProjectMedia,
   getProjectUpdates,
 } from "@/lib/data/projects";
 
-export const revalidate = 3600;
 
 type Props = { params: Promise<{ locale: string; slug: string }> };
-
-export async function generateStaticParams() {
-  const slugs = await getAllPublishedSlugs();
-  return LOCALES.flatMap((locale) => slugs.map((slug) => ({ locale, slug })));
-}
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { locale: rawLocale, slug } = await params;
@@ -43,7 +36,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const name = pick(project, "name", locale);
   const description = pick(project, "description", locale);
-  const pathname = `/${locale}/projects/${slug}`;
+  const pathname = `/${locale}/issues/${slug}`;
 
   return {
     title: name,
@@ -71,11 +64,16 @@ export default async function ProjectDetailPage({ params }: Props) {
 
   const name = pick(project, "name", locale);
   const description = pick(project, "description", locale);
-  const district = getDistrict(project.district);
-  const districtName = district ? (locale === "ml" ? district.ml : district.en) : project.district;
+  const area = getArea(project.area);
+  const areaName = area ? (locale === "ml" ? area.ml : area.en) : project.area;
+  // Looked up at render time, so the contact block always shows whoever
+  // the Panchayat lists now (see lib/directory.ts).
+  const ward = getWard(project.ward_no);
+  const wardName = ward ? t(dict.detail.ward_value, { no: ward.no, name: ward.name }) : null;
+  const contractorSourceIsUrl = /^https?:\/\//i.test(project.contractor_source ?? "");
   const counter = computeDayCounter(project);
   const youtubeId = project.youtube_url ? extractYouTubeId(project.youtube_url) : null;
-  const pageUrl = `${SITE_CONFIG.siteUrl}/${locale}/projects/${slug}`;
+  const pageUrl = `${SITE_CONFIG.siteUrl}/${locale}/issues/${slug}`;
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -87,7 +85,7 @@ export default async function ProjectDetailPage({ params }: Props) {
       project.latitude != null && project.longitude != null
         ? {
             "@type": "Place",
-            name: `${districtName}${project.local_body ? `, ${project.local_body}` : ""}`,
+            name: `${areaName}${project.local_body ? `, ${project.local_body}` : ""}`,
             geo: { "@type": "GeoCoordinates", latitude: project.latitude, longitude: project.longitude },
           }
         : undefined,
@@ -97,8 +95,8 @@ export default async function ProjectDetailPage({ params }: Props) {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
     itemListElement: [
-      { "@type": "ListItem", position: 1, name: dict.nav.projects, item: `${SITE_CONFIG.siteUrl}/${locale}/projects` },
-      { "@type": "ListItem", position: 2, name: districtName, item: `${SITE_CONFIG.siteUrl}/${locale}/projects/district/${project.district}` },
+      { "@type": "ListItem", position: 1, name: dict.nav.projects, item: `${SITE_CONFIG.siteUrl}/${locale}/issues` },
+      { "@type": "ListItem", position: 2, name: areaName, item: `${SITE_CONFIG.siteUrl}/${locale}/issues/area/${project.area}` },
       { "@type": "ListItem", position: 3, name },
     ],
   };
@@ -117,7 +115,7 @@ export default async function ProjectDetailPage({ params }: Props) {
       <div className="grid gap-8 lg:grid-cols-[1.15fr_0.85fr] lg:items-stretch">
         <div className="flex flex-col">
         <Link
-          href={`/${locale}/projects`}
+          href={`/${locale}/issues`}
           className="text-sm font-medium text-muted-foreground underline-offset-4 hover:underline"
         >
           &larr; {dict.detail.back_to_projects}
@@ -126,7 +124,8 @@ export default async function ProjectDetailPage({ params }: Props) {
           <StatusBadge status={project.status} dict={dict} />
           <h1 className="mt-5 text-4xl font-black leading-[1.03] tracking-[-0.04em] sm:text-5xl">{name}</h1>
             <p className="mt-4 text-base text-muted-foreground">
-              {districtName}
+              {areaName}
+              {wardName ? ` · ${wardName}` : ""}
               {project.local_body ? ` · ${project.local_body}` : ""}
             </p>
           {description && <p className="mt-6 max-w-2xl text-lg leading-relaxed text-foreground/75">{description}</p>}
@@ -142,7 +141,7 @@ export default async function ProjectDetailPage({ params }: Props) {
           />
 
           {project.promised_completion_on && !counter.frozen && (
-            <p className="border-x border-b bg-orange-50 px-5 py-3 text-center text-sm font-semibold text-orange-950 dark:bg-orange-950 dark:text-orange-100">
+            <p className="border-x border-b bg-board-50 px-5 py-3 text-center text-sm font-semibold text-board-950 dark:bg-board-950 dark:text-board-100">
               {t(dict.detail.overdue_note, {
                 date: formatDateIST(project.promised_completion_on, locale),
                 days: daysOverdue(project.promised_completion_on).toLocaleString("en-IN"),
@@ -181,6 +180,28 @@ export default async function ProjectDetailPage({ params }: Props) {
           <div>
             <dt className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{dict.detail.department_label}</dt>
             <dd className="mt-0.5 font-medium">{project.department}</dd>
+          </div>
+        )}
+        {project.contractor_name && (
+          <div className="col-span-2">
+            <dt className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{dict.detail.contractor_label}</dt>
+            <dd className="mt-0.5 font-medium">{project.contractor_name}</dd>
+            {project.contractor_source && (
+              <dd className="mt-1 text-xs text-muted-foreground">
+                {contractorSourceIsUrl ? (
+                  <a
+                    href={project.contractor_source}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline underline-offset-4 hover:text-foreground"
+                  >
+                    {dict.detail.source}
+                  </a>
+                ) : (
+                  `${dict.detail.source}: ${project.contractor_source}`
+                )}
+              </dd>
+            )}
           </div>
         )}
       </dl>
@@ -223,8 +244,51 @@ export default async function ProjectDetailPage({ params }: Props) {
         <StatusTimeline updates={updates} locale={locale} dict={dict} />
       </section>
 
+      {/* Representatives appear only here: jurisdiction and contact, in a
+          neutral block apart from the issue - never in the heading, the
+          day counter or the share card (see CLAUDE.md). */}
+      {ward && (
+        <section aria-labelledby="jurisdiction-title" className="border bg-muted/30 p-5">
+          <h2 id="jurisdiction-title" className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
+            {dict.detail.jurisdiction_title}
+          </h2>
+          <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
+            <div>
+              <dt className="text-xs text-muted-foreground">{dict.detail.ward_label}</dt>
+              <dd className="mt-0.5 font-medium">
+                {String(ward.no).padStart(2, "0")} · {ward.name}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">{dict.detail.ward_member_label}</dt>
+              <dd className="mt-0.5 font-medium">{ward.member}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">{dict.detail.phone_label}</dt>
+              <dd className="mt-0.5 font-medium">
+                <a
+                  href={`tel:${ward.phone}`}
+                  aria-label={t(dict.detail.call_aria, { number: ward.phone })}
+                  className="tabular-nums underline decoration-board-500 decoration-2 underline-offset-4 hover:decoration-foreground"
+                >
+                  {ward.phone}
+                </a>
+              </dd>
+            </div>
+          </dl>
+          <p className="mt-4 text-xs leading-relaxed text-muted-foreground">{dict.detail.ward_member_note}</p>
+          <a
+            href={WARDS_SOURCE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-1 inline-block text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
+          >
+            {t(dict.detail.ward_source, { date: formatDateIST(DIRECTORY_AS_OF, locale) })}
+          </a>
+        </section>
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-4 border-t pt-6">
-        <SeenButton projectId={project.id} initialCount={project.seen_count} dict={dict} />
         <ShareButtons url={pageUrl} title={name} dict={dict} />
       </div>
     </div>

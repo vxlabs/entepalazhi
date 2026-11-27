@@ -13,10 +13,10 @@ export function StatsBanner({ stats, dict }: { stats: StatsSummary; dict: Dictio
   return (
     <section className="border-y border-white/15 py-6 text-white lg:border-y-0 lg:border-l lg:py-2 lg:pl-10">
       <div className="flex items-baseline justify-between gap-4">
-        <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-orange-400">
+        <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-board-400">
           {dict.home.stats_title}
         </h2>
-        <span className="size-2 animate-pulse rounded-full bg-orange-500" aria-hidden="true" />
+        <span className="size-2 animate-pulse rounded-full bg-board-500" aria-hidden="true" />
       </div>
       <dl className="mt-6 grid grid-cols-2 gap-x-6 gap-y-7">
         {items.map((item) => (

@@ -3,12 +3,12 @@ import Link from "next/link";
 import { differenceInCalendarDays } from "date-fns";
 import { CheckCircle2, ChevronRight, ClipboardCheck, FilePlus2, FolderKanban, Send } from "lucide-react";
 import { requireAdminPage } from "@/lib/auth";
-import { getAdminDashboardSummary, getPendingSubmissions, getStaleProjects, getUnfilmedLeads, getRecentlyResolved } from "@/lib/data/admin";
+import { getAdminDashboardSummary, getPendingSubmissions, getStaleProjects, getUnverifiedLeads, getRecentlyResolved } from "@/lib/data/admin";
 import { AdminPage, PageHeader } from "@/components/admin/page-header";
 import { StatTile, SectionCard, MuseTableHeader, MuseTableRow, BarMeter, LineChart, Timeline, TimelineItem } from "@/components/admin/muse-ui";
 import { getDictionary } from "@/lib/i18n/dict";
 import { pick } from "@/lib/pick";
-import { getDistrict } from "@/lib/kerala";
+import { getArea } from "@/lib/areas";
 import { parseDateOnly, todayInIST } from "@/lib/dates";
 import { buttonVariants } from "@/components/ui/button";
 import { STATUS_META, STATUS_ORDER } from "@/lib/status-meta";
@@ -17,7 +17,7 @@ import type { Project } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Home" };
 
-const DISTRICTS_SHOWN = 9;
+const AREAS_SHOWN = 9;
 const ATTENTION_PER_BUCKET = 3;
 
 function relativeDays(dateStr: string): string {
@@ -27,32 +27,32 @@ function relativeDays(dateStr: string): string {
   return `${days} days ago`;
 }
 
-type AttentionRow = { id: string; name: string; district: string; why: string; warn: boolean };
+type AttentionRow = { id: string; name: string; area: string; why: string; warn: boolean };
 
 export default async function AdminHomePage() {
   await requireAdminPage();
   const dict = getDictionary("en");
-  const [summary, pending, stale, unfilmed, resolved] = await Promise.all([
+  const [summary, pending, stale, unverified, resolved] = await Promise.all([
     getAdminDashboardSummary(),
     getPendingSubmissions(),
     getStaleProjects(),
-    getUnfilmedLeads(),
+    getUnverifiedLeads(),
     getRecentlyResolved(5),
   ]);
 
-  const districtsWithCases = summary.districtCounts.filter((district) => district.count > 0);
-  const visibleDistricts = districtsWithCases.slice(0, DISTRICTS_SHOWN);
+  const areasWithIssues = summary.areaCounts.filter((area) => area.count > 0);
+  const visibleAreas = areasWithIssues.slice(0, AREAS_SHOWN);
 
   const notices = [
     pending.length > 0 && `${pending.length} need${pending.length === 1 ? "s" : ""} review`,
     stale.length > 0 && `${stale.length} going stale`,
-    unfilmed.length > 0 && `${unfilmed.length} to film`,
+    unverified.length > 0 && `${unverified.length} to verify`,
   ].filter((notice): notice is string => Boolean(notice));
 
-  const districtLabel = (project: Project) => getDistrict(project.district)?.en ?? project.district;
+  const areaLabel = (project: Project) => getArea(project.area)?.en ?? project.area;
 
-  // A case can land in more than one bucket (an unpublished public lead is both
-  // pending and unfilmed), so keep the first — most urgent — reason for each id.
+  // An issue can land in more than one bucket (an unpublished public lead is both
+  // pending and unverified), so keep the first — most urgent — reason for each id.
   const seen = new Set<string>();
   const takeUnique = <T extends Project>(projects: T[], toRow: (project: T) => AttentionRow) => {
     const rows: AttentionRow[] = [];
@@ -69,7 +69,7 @@ export default async function AdminHomePage() {
     ...takeUnique(pending, (project) => ({
       id: project.id,
       name: project.name_en,
-      district: districtLabel(project),
+      area: areaLabel(project),
       why: `Submitted ${relativeDays(project.submitted_on)}`,
       warn: false,
     })),
@@ -78,16 +78,16 @@ export default async function AdminHomePage() {
       return {
         id: project.id,
         name: project.name_en,
-        district: districtLabel(project),
+        area: areaLabel(project),
         why: `${days} days since last update`,
         warn: true,
       };
     }),
-    ...takeUnique(unfilmed, (project) => ({
+    ...takeUnique(unverified, (project) => ({
       id: project.id,
       name: project.name_en,
-      district: districtLabel(project),
-      why: "Lead, not filmed yet",
+      area: areaLabel(project),
+      why: "Lead, not verified yet",
       warn: false,
     })),
   ];
@@ -101,13 +101,13 @@ export default async function AdminHomePage() {
         description={notices.length > 0 ? notices.join(" · ") : "You're all caught up."}
         action={
           <Link href="/admin/projects/new" className={buttonVariants()}>
-            <FilePlus2 className="size-4" /> Add case
+            <FilePlus2 className="size-4" /> Add issue
           </Link>
         }
       />
 
       <section aria-label="Key numbers" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatTile label="Active cases" value={summary.activeCount} icon={FolderKanban} href="/admin/projects" />
+        <StatTile label="Active issues" value={summary.activeCount} icon={FolderKanban} href="/admin/projects" />
         <StatTile
           label="Needs review"
           value={pending.length}
@@ -120,26 +120,26 @@ export default async function AdminHomePage() {
         <StatTile label="Completed" value={summary.statusCounts.completed} icon={CheckCircle2} href="/admin/projects?status=completed" />
       </section>
 
-      <section aria-label="Case breakdowns" className="grid gap-4 lg:grid-cols-5">
+      <section aria-label="Issue breakdowns" className="grid gap-4 lg:grid-cols-5">
         <SectionCard
-          title="Cases by district"
-          subtitle={`${districtsWithCases.length} districts with active cases`}
+          title="Issues by area"
+          subtitle={`${areasWithIssues.length} areas with active issues`}
           tone="dark"
           className="lg:col-span-2"
         >
-          {visibleDistricts.length > 0 ? (
+          {visibleAreas.length > 0 ? (
             <>
               <BarMeter
                 tone="dark"
-                data={visibleDistricts.map((d) => ({ key: d.slug, label: d.name, value: d.count }))}
-                hrefFor={(slug) => `/admin/projects?district=${slug}`}
+                data={visibleAreas.map((d) => ({ key: d.slug, label: d.name, value: d.count }))}
+                hrefFor={(slug) => `/admin/projects?area=${slug}`}
               />
               <div className="mt-5 grid grid-cols-2 divide-x divide-white/15 rounded-xl bg-white/10 sm:grid-cols-4">
                 {[
                   { label: "Active", value: summary.activeCount },
                   { label: "Published", value: summary.publishedCount },
                   { label: "Drafts", value: summary.draftCount },
-                  { label: "Districts", value: districtsWithCases.length },
+                  { label: "Areas", value: areasWithIssues.length },
                 ].map((cell) => (
                   <div key={cell.label} className="flex flex-col items-center gap-0.5 px-2 py-3 text-center">
                     <span className="text-lg font-bold tabular-nums">{cell.value}</span>
@@ -149,11 +149,11 @@ export default async function AdminHomePage() {
               </div>
             </>
           ) : (
-            <p className="text-sm text-white/75">Add your first case to see the district breakdown.</p>
+            <p className="text-sm text-white/75">Add your first issue to see the area breakdown.</p>
           )}
         </SectionCard>
 
-        <SectionCard title="Cases over time" subtitle={`${monthlyAdded} added this month`} className="lg:col-span-3">
+        <SectionCard title="Issues over time" subtitle={`${monthlyAdded} added this month`} className="lg:col-span-3">
           <LineChart
             points={summary.monthlyTrend.map((m) => ({ label: m.label }))}
             series={[
@@ -167,7 +167,7 @@ export default async function AdminHomePage() {
       <section aria-label="Needs your attention and recent activity" className="grid gap-4 lg:grid-cols-5">
         <SectionCard
           title="Needs your attention"
-          subtitle="Pending review, going stale, or waiting to be filmed"
+          subtitle="Pending review, going stale, or waiting to be verified"
           className="lg:col-span-3"
           action={
             <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs font-medium">
@@ -178,7 +178,7 @@ export default async function AdminHomePage() {
                 Stale ({stale.length})
               </Link>
               <Link href="/admin/projects?status=lead&reported=false" className="text-primary hover:underline">
-                Unfilmed ({unfilmed.length})
+                Unverified ({unverified.length})
               </Link>
             </div>
           }
@@ -186,15 +186,15 @@ export default async function AdminHomePage() {
           {attentionRows.length > 0 ? (
             <div>
               <MuseTableHeader>
-                <span className="flex-1">Case</span>
-                <span className="hidden w-28 shrink-0 sm:block">District</span>
+                <span className="flex-1">Issue</span>
+                <span className="hidden w-28 shrink-0 sm:block">Area</span>
                 <span className="w-36 shrink-0 text-right sm:text-left">Why</span>
               </MuseTableHeader>
               <div className="divide-y divide-border/70">
                 {attentionRows.map((row) => (
                   <MuseTableRow key={row.id} href={`/admin/projects/${row.id}`}>
                     <span className="min-w-0 flex-1 truncate font-medium">{row.name}</span>
-                    <span className="hidden w-28 shrink-0 truncate text-muted-foreground sm:block">{row.district}</span>
+                    <span className="hidden w-28 shrink-0 truncate text-muted-foreground sm:block">{row.area}</span>
                     <span className={cn("w-36 shrink-0 truncate text-right text-xs sm:text-left", row.warn ? "text-destructive" : "text-muted-foreground")}>
                       {row.why}
                     </span>
@@ -210,7 +210,7 @@ export default async function AdminHomePage() {
 
         <SectionCard
           title="Recently completed"
-          subtitle="Latest cases marked resolved"
+          subtitle="Latest issues marked resolved"
           className="lg:col-span-2"
           action={
             <Link href="/admin/projects?status=completed" className="text-xs font-medium text-primary hover:underline">
@@ -227,18 +227,18 @@ export default async function AdminHomePage() {
                   icon={STATUS_META.completed.icon}
                   dotClassName={STATUS_META.completed.dot}
                   title={pick(project, "name", "en")}
-                  meta={districtLabel(project)}
+                  meta={areaLabel(project)}
                   last={index === resolved.length - 1}
                 />
               ))}
             </Timeline>
           ) : (
-            <p className="py-2 text-sm text-muted-foreground">Completed cases will appear here.</p>
+            <p className="py-2 text-sm text-muted-foreground">Completed issues will appear here.</p>
           )}
         </SectionCard>
       </section>
 
-      <SectionCard title="Where cases stand" subtitle="All active cases by status">
+      <SectionCard title="Where issues stand" subtitle="All active issues by status">
         <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
           {STATUS_ORDER.map((status) => {
             const meta = STATUS_META[status];

@@ -1,9 +1,6 @@
-/** Builds a public URL for an approved photo in the `project-photos`
- * bucket from its stored path. See supabase/migrations/0001_core.sql for
- * why `project_media.storage_path` is a path, not a full URL - it has to
- * survive a bucket rename/migration without a data rewrite. */
+/** Public URL of an approved photo. `storagePath` is what is stored in
+ * project_media.storage_path: a path relative to UPLOAD_DIR/public, served
+ * by app/media/[...path]/route.ts. Safe to import from client components. */
 export function getPublicPhotoUrl(storagePath: string): string {
-  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!base) return storagePath;
-  return `${base}/storage/v1/object/public/project-photos/${storagePath}`;
+  return `/media/${storagePath.split("/").map(encodeURIComponent).join("/")}`;
 }

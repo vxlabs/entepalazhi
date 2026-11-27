@@ -1,23 +1,22 @@
+import "server-only";
 import { unstable_cache } from "next/cache";
-import { createAnonClient } from "@/lib/supabase/server";
+import { queryOne } from "@/lib/db";
 import type { SiteSettings } from "@/lib/types";
 
 async function fetchSiteSettings(): Promise<SiteSettings> {
-  const supabase = createAnonClient();
-  const { data, error } = await supabase.from("site_settings").select("*").eq("id", true).single();
-  if (error) throw error;
-  return data as SiteSettings;
+  const row = await queryOne<SiteSettings>("select * from site_settings where id = 1");
+  if (!row) throw new Error("site_settings row is missing - run the migrations.");
+  return row;
 }
 
 /**
- * Reads the single site_settings row via the anon client - see
- * supabase/migrations/0002_admin.sql's site_settings_public_read policy.
- * Used by the header/footer support link, /support, and the sitemap.
+ * The single site_settings row. Nothing in it is private: it is copy for
+ * the /support page plus the public social link. Used by the header and
+ * footer, /support, and the sitemap.
  *
- * Cached like getStatsSummary in lib/data/projects.ts (same rationale:
- * read on nearly every page, changes rarely). actions/admin/settings.ts
- * calls revalidateTag("site-settings") on save for the "live without a
- * redeploy" requirement; the 60s window here is just a safety net.
+ * Cached because it is read on nearly every page and changes rarely.
+ * actions/admin/settings.ts clears the "site-settings" tag on save so a
+ * change is live at once; the 60s window here is only a safety net.
  */
 export const getSiteSettings = unstable_cache(fetchSiteSettings, ["site-settings"], {
   revalidate: 60,

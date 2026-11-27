@@ -4,7 +4,7 @@ import { requireAdminPage } from "@/lib/auth";
 import { getProjectForEditor } from "@/lib/data/admin";
 import { ProjectEditor } from "@/components/admin/project-editor";
 
-export const metadata: Metadata = { title: "Edit case" };
+export const metadata: Metadata = { title: "Edit issue" };
 
 type Props = { params: Promise<{ id: string }>; searchParams: Promise<{ created?: string }> };
 

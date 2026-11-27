@@ -3,7 +3,7 @@ import type { Dictionary } from "@/lib/i18n/dict";
 const CRORE = 1_00_00_000;
 const LAKH = 1_00_000;
 
-/** Renders a rupee amount as crore/lakh, matching how Kerala news coverage quotes project costs. */
+/** Renders a rupee amount as crore/lakh, the way costs are usually quoted in Kerala. */
 export function formatCostINR(amountInr: number, d: Dictionary): string {
   if (amountInr >= CRORE) {
     return `\u20b9${trimZeros(amountInr / CRORE)} ${d.common.crore}`;

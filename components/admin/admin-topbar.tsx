@@ -1,5 +1,6 @@
 "use client";
 
+import { BrandMark } from "@/components/brand-mark";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { Bell, Search, Settings } from "lucide-react";
@@ -19,9 +20,7 @@ export function AdminTopbar({ email, pendingCount }: { email: string; pendingCou
     <header className="sticky top-0 z-30 flex min-h-16 items-center justify-between gap-4 bg-background/80 px-4 backdrop-blur md:pl-[16.5rem] md:pr-6">
       <div className="flex min-w-0 flex-1 items-center gap-4">
         <div className="flex items-center gap-2 md:hidden">
-          <span className="admin-gradient grid size-9 place-items-center rounded-xl text-lg font-black text-white shadow-sm" aria-hidden="true">
-            A
-          </span>
+          <BrandMark className="text-sm" />
         </div>
         <div className="hidden min-w-0 md:block">
           <p className="text-xs text-muted-foreground">
@@ -35,7 +34,7 @@ export function AdminTopbar({ email, pendingCount }: { email: string; pendingCou
           <input
             type="search"
             name="q"
-            placeholder="Search cases..."
+            placeholder="Search issues..."
             className="h-9 w-full rounded-lg bg-card pl-9 pr-3 text-sm shadow-[var(--admin-shadow-card)] outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
           />
         </form>

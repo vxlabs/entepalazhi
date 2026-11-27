@@ -4,7 +4,7 @@ import { DEFAULT_LOCALE } from "@/lib/i18n/config";
 import { getDictionary } from "@/lib/i18n/dict";
 
 export const metadata: Metadata = {
-  title: "404 - Not found | Aarekettikkan",
+  title: "404 - Not found | Ente Palazhi",
   description: "The page you are looking for does not exist.",
 };
 

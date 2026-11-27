@@ -1,44 +1,29 @@
 "use client";
 
 import { useActionState } from "react";
-import { sendMagicLink, type SendMagicLinkState } from "@/actions/admin/auth";
+import { loginAdmin, type LoginState } from "@/actions/admin/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-const initialState: SendMagicLinkState = { status: "idle" };
+const initialState: LoginState = { status: "idle" };
 
-const authErrorMessages = {
-  context: "Open a new sign-in link in the same browser and profile where you requested it.",
-  expired: "This sign-in link has expired or was already used. Request a new one.",
-  exchange: "We could not complete that sign-in link. Request a new one and try again.",
-} as const;
-
-export function LoginForm({ authError }: { authError?: string }) {
-  const [state, formAction, pending] = useActionState(sendMagicLink, initialState);
-  const callbackError =
-    authError && authError in authErrorMessages
-      ? authErrorMessages[authError as keyof typeof authErrorMessages]
-      : undefined;
-
-  if (state.status === "sent") {
-    return (
-      <p className="text-sm text-muted-foreground">
-        Check your email for a sign-in link. You can close this tab.
-      </p>
-    );
-  }
+export function LoginForm() {
+  const [state, formAction, pending] = useActionState(loginAdmin, initialState);
 
   return (
     <form action={formAction} className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="email">Email</Label>
-        <Input id="email" name="email" type="email" placeholder="you@example.com" required autoFocus />
+        <Input id="email" name="email" type="email" autoComplete="username" defaultValue={state.email ?? ""} required autoFocus />
       </div>
-      {callbackError && <p className="text-sm text-destructive">{callbackError}</p>}
+      <div className="space-y-2">
+        <Label htmlFor="password">Password</Label>
+        <Input id="password" name="password" type="password" autoComplete="current-password" required />
+      </div>
       {state.status === "error" && <p className="text-sm text-destructive">{state.message}</p>}
       <Button type="submit" disabled={pending} className="w-full">
-        {pending ? "Sending..." : "Send sign-in link"}
+        {pending ? "Signing in..." : "Sign in"}
       </Button>
     </form>
   );

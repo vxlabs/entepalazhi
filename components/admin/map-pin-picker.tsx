@@ -8,7 +8,7 @@ const ADMIN_LABELS: LocationPickerLabels = {
   locationHelp: "Your device asks for permission only after you press the button.",
   locationSelected: "Location selected. You can fine-tune it on the map.",
   clearLocation: "Clear location",
-  mapHint: "Tap the map to place the pin, or drag the pin to adjust it.",
+  mapHint: "Click the map to place the pin, drag it to adjust, and scroll to zoom in or out.",
   mapsFallback: "Paste a Google Maps link instead",
   mapsUrlPlaceholder: "https://maps.google.com/...",
   useLink: "Use link",
@@ -29,5 +29,5 @@ export function MapPinPicker({
   longitude: number | null;
   onChange: (lat: number | null, lng: number | null) => void;
 }) {
-  return <LocationPicker latitude={latitude} longitude={longitude} onChange={onChange} labels={ADMIN_LABELS} showCoordinates />;
+  return <LocationPicker latitude={latitude} longitude={longitude} onChange={onChange} labels={ADMIN_LABELS} showCoordinates scrollWheelZoom />;
 }

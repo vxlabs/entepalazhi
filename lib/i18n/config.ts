@@ -6,7 +6,7 @@ export function isLocale(value: string): value is Locale {
   return (LOCALES as readonly string[]).includes(value);
 }
 
-/** Build a same-page href under the other locale, e.g. "/ml/projects" <-> "/en/projects". */
+/** Build a same-page href under the other locale, e.g. "/ml/issues" <-> "/en/issues". */
 export function localizePath(pathname: string, locale: Locale): string {
   const rest = pathname.replace(/^\/(en|ml)(?=\/|$)/, "") || "/";
   return `/${locale}${rest === "/" ? "" : rest}`;

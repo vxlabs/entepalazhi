@@ -40,3 +40,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local uploads and editor state
+/uploads
+
+# local SQLite database (DATABASE_PATH)
+/data/

@@ -4,6 +4,18 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Brand accent: the yellow of a painted public-works notice board.
+   Used as board-500 on dark or black-on-yellow; board-600 is the darker
+   shade that stays readable as text on the light page background. */
+@theme {
+  --color-board-50: #fff9db;
+  --color-board-300: #ffe066;
+  --color-board-400: #ffd633;
+  --color-board-500: #f5c400;
+  --color-board-600: #8a6a00;
+  --color-board-950: #2b2300;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -148,7 +160,7 @@
   pointer-events: none;
 }
 
-/* Admin is a creator-facing workspace. These tokens are deliberately scoped
+/* Admin is the operator-facing workspace. These tokens are deliberately scoped
    so the public bilingual site keeps its existing editorial visual language.
    Palette follows the Muse / Ant Design Vue dashboard reference: cool gray
    ground, blue primary, borderless white cards lifted by shadow instead of
@@ -174,6 +186,9 @@
   --radius: 0.75rem;
   --font-sans: var(--font-admin-sans), var(--font-noto-malayalam), ui-sans-serif, sans-serif;
   --font-heading: var(--font-admin-sans), var(--font-noto-malayalam), ui-sans-serif, sans-serif;
+  /* Set directly as well: the font-sans utility is compiled to the public
+     site stack (see @theme inline above), whose font is not loaded here. */
+  font-family: var(--font-admin-sans), var(--font-noto-malayalam), ui-sans-serif, sans-serif;
 
   /* Muse's two shadow depths: a resting card, and the lifted active nav pill. */
   --admin-shadow-card: 0 4px 6px -1px oklch(0.22 0.02 260 / 0.06), 0 2px 4px -2px oklch(0.22 0.02 260 / 0.05);

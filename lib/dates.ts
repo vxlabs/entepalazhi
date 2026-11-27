@@ -8,13 +8,13 @@ export function todayInIST(): Date {
   return toZonedTime(new Date(), IST);
 }
 
-/** Today's calendar date in India, safe to submit to Postgres `date` columns. */
+/** Today's calendar date in India, safe to submit to SQL `date` columns. */
 export function todayIsoInIST(): string {
   return formatInTimeZone(new Date(), IST, "yyyy-MM-dd");
 }
 
 export function parseDateOnly(value: string): Date {
-  // Project date columns are Postgres `date` (no time component); parse as
+  // Issue date columns are SQL `date` (no time component); parse as
   // a plain calendar date rather than letting the platform's local
   // midnight interpretation shift the day.
   return parseISO(value);
@@ -30,7 +30,7 @@ export type DayCounter = {
 };
 
 /**
- * The big counter's arithmetic, per the plan:
+ * The big counter's arithmetic:
  *   from = reported_on ?? submitted_on
  *   end  = resolved_on ?? today (IST)
  *   days = end - from

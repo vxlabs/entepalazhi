@@ -1,0 +1,31 @@
+# Production stack for the Linux server: one container. The database is a
+# SQLite file on the "db" volume; photos are on the "uploads" volume.
+#   cp .env.example .env    (optional settings only)
+#   docker compose up -d --build
+# See README.md "Hosting" for the reverse proxy, backups and first admin.
+name: entepalazhi
+services:
+  web:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://entepalazhi.in}
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://entepalazhi.in}
+      IP_HASH_SALT: ${IP_HASH_SALT:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+    ports:
+      # Only reachable from the server itself; the reverse proxy forwards to it.
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
+    volumes:
+      - db:/data/db
+      - uploads:/data/uploads
+      # Resized copies made by the image optimizer. Rebuildable, so no need
+      # to back it up; kept so a redeploy does not re-encode every photo.
+      - image-cache:/app/.next/cache/images
+
+volumes:
+  db:
+  uploads:
+  image-cache:

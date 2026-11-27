@@ -27,7 +27,8 @@ export default async function ReportPage({ params }: Props) {
   return (
     <div className="mx-auto max-w-xl px-4 py-10 sm:px-6">
       <h1 className="text-2xl font-bold">{dict.report.title}</h1>
-      <p className="mt-2 mb-6 text-sm text-muted-foreground">{dict.report.intro}</p>
+      <p className="mt-2 text-sm text-muted-foreground">{dict.report.intro}</p>
+      <p className="mt-2 mb-6 text-sm font-medium">{dict.report.privacy}</p>
       <ReportForm locale={locale} dict={dict} />
     </div>
   );

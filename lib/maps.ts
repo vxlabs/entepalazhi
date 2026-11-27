@@ -22,8 +22,8 @@ function parseDirectMapsUrl(url: string): LatLng | null {
 }
 
 /**
- * Parses lat/lng out of a pasted Google Maps URL, per the plan: "he'll
- * already have a Maps link from being on location". Short links
+ * Parses lat/lng out of a pasted Google Maps URL (whoever is
+ * standing at the spot usually has one to hand). Short links
  * (maps.app.goo.gl, goo.gl/maps) don't carry coordinates in the URL
  * itself, so those are resolved with a HEAD-then-GET follow-redirect
  * fetch first. Returns null on any failure - MapPinPicker falls back to

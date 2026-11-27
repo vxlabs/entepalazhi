@@ -3,7 +3,7 @@ import { DEFAULT_LOCALE } from "@/lib/i18n/config";
 /**
  * A third "root layout" (alongside app/[locale] and app/admin - see the
  * multiple-root-layouts pattern in Next's route-groups docs), existing
- * only to give an unprefixed path (/projects, /about, ...) somewhere to
+ * only to give an unprefixed path (/issues, /about, ...) somewhere to
  * redirect from.
  *
  * This replaces an earlier proxy.ts-based redirect: with

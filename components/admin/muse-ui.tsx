@@ -118,7 +118,7 @@ export function MuseTableRow({ href, children }: { href?: string; children: Reac
 }
 
 /** Horizontal bar meter - label, proportional bar, value. Used in place of a
- * charting library for the district breakdown; `tone="dark"` renders it in
+ * charting library for the area breakdown; `tone="dark"` renders it in
  * white-on-gradient for use inside a `SectionCard tone="dark"`. */
 export function BarMeter({
   data,
@@ -183,7 +183,7 @@ export function LineChart({
 
   return (
     <div>
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full" role="img" aria-label="Cases added versus reported, last 12 months">
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full" role="img" aria-label="Issues added versus reported, last 12 months">
         {[0, 0.25, 0.5, 0.75, 1].map((t) => (
           <line
             key={t}

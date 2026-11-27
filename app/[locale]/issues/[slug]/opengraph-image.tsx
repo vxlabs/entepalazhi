@@ -3,13 +3,12 @@ import { computeDayCounter } from "@/lib/dates";
 import { formatCostINR } from "@/lib/format";
 import { DEFAULT_LOCALE, isLocale, type Locale } from "@/lib/i18n/config";
 import { getDictionary } from "@/lib/i18n/dict";
-import { getDistrict } from "@/lib/kerala";
+import { getArea } from "@/lib/areas";
 import { pick } from "@/lib/pick";
 import { getProjectBySlug } from "@/lib/data/projects";
 
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
-export const revalidate = 3600;
 
 type Props = { params: Promise<{ locale: string; slug: string }> };
 
@@ -36,8 +35,8 @@ export default async function OGImage({ params }: Props) {
   }
 
   const name = pick(project, "name", locale);
-  const district = getDistrict(project.district);
-  const districtName = district ? district.en : project.district;
+  const area = getArea(project.area);
+  const areaName = area ? (locale === "ml" ? area.ml : area.en) : project.area;
   const counter = computeDayCounter(project);
   const cost = typeof project.cost_inr === "number" ? formatCostINR(project.cost_inr, dict) : null;
 
@@ -51,7 +50,8 @@ export default async function OGImage({ params }: Props) {
           width: "100%",
           height: "100%",
           padding: 64,
-          background: "linear-gradient(135deg, #1a1a1a 0%, #3a2a1a 100%)",
+          background: "#171714",
+          borderTop: "24px solid #f5c400",
           color: "#fff",
           fontFamily: "sans-serif",
         }}
@@ -63,7 +63,7 @@ export default async function OGImage({ params }: Props) {
           <div style={{ display: "flex", fontSize: 44, fontWeight: 800, lineHeight: 1.15, maxWidth: 1000 }}>
             {name}
           </div>
-          <div style={{ display: "flex", fontSize: 26, color: "#d4b896" }}>{districtName}</div>
+          <div style={{ display: "flex", fontSize: 26, color: "#f5c400" }}>{areaName}</div>
         </div>
         <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
           <div style={{ display: "flex", flexDirection: "column" }}>
@@ -71,7 +71,7 @@ export default async function OGImage({ params }: Props) {
               {counter.days.toLocaleString("en-IN")}
             </div>
             <div style={{ display: "flex", fontSize: 24, color: "#ccc" }}>
-              {counter.frozen ? "days to resolve" : "days pending"}
+              {counter.frozen ? dict.og.days_to_resolve : dict.og.days_outstanding}
             </div>
           </div>
           {cost && (

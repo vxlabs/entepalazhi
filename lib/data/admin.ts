@@ -1,23 +1,26 @@
 import "server-only";
 import { differenceInCalendarDays, parseISO } from "date-fns";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { KERALA_DISTRICTS } from "@/lib/kerala";
+import { isUuid, likePattern, query, queryOne, type SqlParams } from "@/lib/db";
+import { PALAZHI_AREAS } from "@/lib/areas";
 import { todayInIST } from "@/lib/dates";
 import type { AdminAuditLog, Project, ProjectMedia, ProjectStatus, ProjectSubmitter, ProjectUpdate } from "@/lib/types";
+
+// Admin reads: these see drafts, pending reports and submitter contact
+// details. Every caller must have passed requireAdmin()/requireAdminPage().
 
 const STALE_AFTER_DAYS = 90;
 
 // ---------------------------------------------------------------------
-// Triage home - "what needs me today"
+// Triage home - "what needs attention today"
 // ---------------------------------------------------------------------
 
-export type DashboardDistrictCount = {
+export type DashboardAreaCount = {
   slug: string;
   name: string;
   count: number;
 };
 
-/** One month's worth of the dashboard's "cases over time" line chart. */
+/** One month's worth of the dashboard's "issues over time" line chart. */
 export type MonthlyTrendPoint = {
   /** "2026-03" */
   month: string;
@@ -33,7 +36,7 @@ export type AdminDashboardSummary = {
   draftCount: number;
   everReportedCount: number;
   statusCounts: Record<ProjectStatus, number>;
-  districtCounts: DashboardDistrictCount[];
+  areaCounts: DashboardAreaCount[];
   monthlyTrend: MonthlyTrendPoint[];
 };
 
@@ -50,23 +53,22 @@ function emptyTrend(): Map<string, MonthlyTrendPoint> {
   const anchor = todayInIST();
   for (let i = TREND_MONTHS - 1; i >= 0; i--) {
     const d = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() - i, 1));
-    trend.set(monthKey(d), { month: monthKey(d), label: MONTH_LABELS[d.getUTCMonth()], added: 0, reported: 0 });
+    const key = monthKey(d);
+    trend.set(key, { month: key, label: MONTH_LABELS[d.getUTCMonth()], added: 0, reported: 0 });
   }
   return trend;
 }
 
 /**
- * A compact, request-time overview of every active case. This deliberately
- * includes drafts and pending submissions: the admin dashboard is an
- * operations view, rather than a mirror of the public catalogue.
+ * A compact, request-time overview of every active issue. This deliberately
+ * includes drafts and pending reports: the admin dashboard is an
+ * operations view, not a mirror of the public record.
  */
 export async function getAdminDashboardSummary(): Promise<AdminDashboardSummary> {
-  const supabase = createAdminClient();
-  const { data, error } = await supabase
-    .from("projects")
-    .select("district, status, reported_on, submitted_on, is_published")
-    .is("archived_at", null);
-  if (error) throw error;
+  type Row = Pick<Project, "area" | "status" | "reported_on" | "submitted_on" | "is_published">;
+  const rows = await query<Row>(
+    "select area, status, reported_on, submitted_on, is_published from projects where archived_at is null",
+  );
 
   const statusCounts: Record<ProjectStatus, number> = {
     lead: 0,
@@ -76,146 +78,137 @@ export async function getAdminDashboardSummary(): Promise<AdminDashboardSummary>
     completed: 0,
     no_action: 0,
   };
-  const districtCounts = new Map(KERALA_DISTRICTS.map((district) => [district.slug, 0]));
+  const areaCounts = new Map(PALAZHI_AREAS.map((area) => [area.slug, 0]));
   const monthlyTrend = emptyTrend();
   let publishedCount = 0;
   let everReportedCount = 0;
 
-  type Row = Pick<Project, "district" | "status" | "reported_on" | "submitted_on" | "is_published">;
-  for (const row of (data ?? []) as Row[]) {
+  for (const row of rows) {
     statusCounts[row.status] += 1;
-    districtCounts.set(row.district, (districtCounts.get(row.district) ?? 0) + 1);
+    areaCounts.set(row.area, (areaCounts.get(row.area) ?? 0) + 1);
     if (row.is_published) publishedCount += 1;
     if (row.reported_on) everReportedCount += 1;
 
-    const addedKey = row.submitted_on.slice(0, 7);
-    const addedPoint = monthlyTrend.get(addedKey);
+    const addedPoint = monthlyTrend.get(row.submitted_on.slice(0, 7));
     if (addedPoint) addedPoint.added += 1;
 
     if (row.reported_on) {
-      const reportedKey = row.reported_on.slice(0, 7);
-      const reportedPoint = monthlyTrend.get(reportedKey);
+      const reportedPoint = monthlyTrend.get(row.reported_on.slice(0, 7));
       if (reportedPoint) reportedPoint.reported += 1;
     }
   }
 
   return {
-    activeCount: data?.length ?? 0,
+    activeCount: rows.length,
     publishedCount,
-    draftCount: (data?.length ?? 0) - publishedCount,
+    draftCount: rows.length - publishedCount,
     everReportedCount,
     statusCounts,
-    districtCounts: KERALA_DISTRICTS.map((district) => ({
-      slug: district.slug,
-      name: district.en,
-      count: districtCounts.get(district.slug) ?? 0,
+    areaCounts: PALAZHI_AREAS.map((area) => ({
+      slug: area.slug,
+      name: area.en,
+      count: areaCounts.get(area.slug) ?? 0,
     })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
     monthlyTrend: [...monthlyTrend.values()],
   };
 }
 
-/** Cheap unread-count for the topbar bell - avoid the full submitter/media
- * joins that getPendingSubmissions() needs, since this renders on every
- * admin page. */
+/** Cheap unread-count for the topbar bell: this renders on every admin page. */
 export async function getPendingCount(): Promise<number> {
-  const supabase = createAdminClient();
-  const { count, error } = await supabase
-    .from("projects")
-    .select("id", { count: "exact", head: true })
-    .eq("source", "public")
-    .eq("is_published", false)
-    .is("archived_at", null);
-  if (error) throw error;
-  return count ?? 0;
+  const row = await queryOne<{ n: number }>(
+    "select count(*) as n from projects where source = 'public' and is_published = 0 and archived_at is null",
+  );
+  return row?.n ?? 0;
 }
 
 export type PendingSubmission = Project & { submitter: ProjectSubmitter | null; photoCount: number };
 
-export async function getPendingSubmissions(): Promise<PendingSubmission[]> {
-  const supabase = createAdminClient();
-  const { data, error } = await supabase
-    .from("projects")
-    .select("*, project_submitters(*), project_media(id)")
-    .eq("source", "public")
-    .eq("is_published", false)
-    .is("archived_at", null)
-    .order("submitted_on", { ascending: true });
-  if (error) throw error;
+type SubmitterRow = ProjectSubmitter & { pending_photo_paths: string };
 
-  return (data ?? []).map((row) => {
-    const { project_submitters, project_media, ...project } = row as Project & {
-      project_submitters: ProjectSubmitter[];
-      project_media: { id: string }[];
-    };
-    return {
-      ...project,
-      submitter: project_submitters?.[0] ?? null,
-      photoCount: project_media?.length ?? 0,
-    };
+export function parsePendingPhotoPaths(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function getPendingSubmissions(): Promise<PendingSubmission[]> {
+  const projects = await query<Project>(
+    `select * from projects
+      where source = 'public' and is_published = 0 and archived_at is null
+      order by submitted_on asc, created_at asc`,
+  );
+  if (projects.length === 0) return [];
+
+  const submitters = await query<SubmitterRow>(
+    `select s.* from project_submitters s
+       join projects p on p.id = s.project_id
+      where p.source = 'public' and p.is_published = 0 and p.archived_at is null`,
+  );
+  const media = await query<{ project_id: string; n: number }>(
+    `select m.project_id, count(*) as n from project_media m
+       join projects p on p.id = m.project_id
+      where p.source = 'public' and p.is_published = 0 and p.archived_at is null
+      group by m.project_id`,
+  );
+
+  const submitterByProject = new Map(submitters.map((s) => [s.project_id, s]));
+  const mediaByProject = new Map(media.map((m) => [m.project_id, m.n]));
+
+  return projects.map((project) => {
+    const row = submitterByProject.get(project.id);
+    let submitter: ProjectSubmitter | null = null;
+    let pendingPhotos = 0;
+    if (row) {
+      const { pending_photo_paths, ...rest } = row;
+      submitter = rest;
+      pendingPhotos = parsePendingPhotoPaths(pending_photo_paths).length;
+    }
+    return { ...project, submitter, photoCount: (mediaByProject.get(project.id) ?? 0) + pendingPhotos };
   });
 }
 
 /** Published, still "reported", with no timeline entry in 90+ days - the
- * list that keeps the site's "tracks what happened after" claim true. */
+ * list that keeps the record's "what happened next" claim true. */
 export async function getStaleProjects(): Promise<Project[]> {
-  const supabase = createAdminClient();
-  const { data: candidates, error } = await supabase
-    .from("projects")
-    .select("*")
-    .eq("is_published", true)
-    .is("archived_at", null)
-    .eq("status", "reported");
-  if (error) throw error;
-  if (!candidates?.length) return [];
+  const candidates = await query<Project & { latest_update_on: string | null }>(
+    `select p.*, (select max(u.happened_on) from project_updates u where u.project_id = p.id) as latest_update_on
+       from projects p
+      where p.is_published = 1 and p.archived_at is null and p.status = 'reported'`,
+  );
 
-  const { data: updates, error: updatesError } = await supabase
-    .from("project_updates")
-    .select("project_id, happened_on")
-    .in(
-      "project_id",
-      candidates.map((p) => p.id),
-    )
-    .order("happened_on", { ascending: false });
-  if (updatesError) throw updatesError;
-
-  const latestByProject = new Map<string, string>();
-  for (const u of updates ?? []) {
-    if (!latestByProject.has(u.project_id)) latestByProject.set(u.project_id, u.happened_on);
-  }
-
-  const today = new Date();
-  return (candidates as Project[]).filter((p) => {
-    const latest = latestByProject.get(p.id) ?? p.reported_on ?? p.submitted_on;
-    return differenceInCalendarDays(today, parseISO(latest)) >= STALE_AFTER_DAYS;
-  });
+  const today = todayInIST();
+  return candidates
+    .filter((p) => {
+      const latest = p.latest_update_on ?? p.reported_on ?? p.submitted_on;
+      return differenceInCalendarDays(today, parseISO(latest)) >= STALE_AFTER_DAYS;
+    })
+    .map(({ latest_update_on, ...project }) => {
+      void latest_update_on;
+      return project as Project;
+    });
 }
 
-/** His shooting backlog: leads with no reported_on yet, oldest first. */
-export async function getUnfilmedLeads(): Promise<Project[]> {
-  const supabase = createAdminClient();
-  const { data, error } = await supabase
-    .from("projects")
-    .select("*")
-    .eq("status", "lead")
-    .is("reported_on", null)
-    .is("archived_at", null)
-    .order("submitted_on", { ascending: true });
-  if (error) throw error;
-  return (data ?? []) as Project[];
+/** The verification backlog: leads with no reported_on yet, oldest first. */
+export async function getUnverifiedLeads(): Promise<Project[]> {
+  return query<Project>(
+    `select * from projects
+      where status = 'lead' and reported_on is null and archived_at is null
+      order by submitted_on asc, created_at asc`,
+  );
 }
 
 export async function getRecentlyResolved(limit = 5): Promise<Project[]> {
-  const supabase = createAdminClient();
-  const { data, error } = await supabase
-    .from("projects")
-    .select("*")
-    .eq("status", "completed")
-    .not("resolved_on", "is", null)
-    .is("archived_at", null)
-    .order("resolved_on", { ascending: false })
-    .limit(limit);
-  if (error) throw error;
-  return (data ?? []) as Project[];
+  return query<Project>(
+    `select * from projects
+      where status = 'completed' and resolved_on is not null and archived_at is null
+      order by resolved_on desc
+      limit @limit`,
+    { limit },
+  );
 }
 
 // ---------------------------------------------------------------------
@@ -224,30 +217,40 @@ export async function getRecentlyResolved(limit = 5): Promise<Project[]> {
 
 export type AdminProjectFilters = {
   status?: string;
-  district?: string;
+  area?: string;
   published?: boolean;
   reported?: boolean;
   query?: string;
 };
 
 export async function getAllProjectsAdmin(filters: AdminProjectFilters = {}): Promise<Project[]> {
-  const supabase = createAdminClient();
-  let query = supabase.from("projects").select("*").is("archived_at", null);
-  if (filters.status) query = query.eq("status", filters.status);
-  if (filters.district) query = query.eq("district", filters.district);
-  if (typeof filters.published === "boolean") query = query.eq("is_published", filters.published);
-  if (typeof filters.reported === "boolean") {
-    query = filters.reported ? query.not("reported_on", "is", null) : query.is("reported_on", null);
-  }
-  if (filters.query) {
-    const escaped = filters.query.replace(/[,%()]/g, " ").trim();
-    if (escaped) query = query.or(`name_en.ilike.%${escaped}%,name_ml.ilike.%${escaped}%`);
-  }
-  query = query.order("submitted_on", { ascending: false });
+  const where = ["archived_at is null"];
+  const params: SqlParams = {};
 
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data ?? []) as Project[];
+  if (filters.status) {
+    where.push("status = @status");
+    params.status = filters.status;
+  }
+  if (filters.area) {
+    where.push("area = @area");
+    params.area = filters.area;
+  }
+  if (typeof filters.published === "boolean") {
+    where.push("is_published = @published");
+    params.published = filters.published;
+  }
+  if (typeof filters.reported === "boolean") {
+    where.push(filters.reported ? "reported_on is not null" : "reported_on is null");
+  }
+  if (filters.query?.trim()) {
+    where.push("(name_en like @q escape '\\' or name_ml like @q escape '\\')");
+    params.q = likePattern(filters.query.trim());
+  }
+
+  return query<Project>(
+    `select * from projects where ${where.join(" and ")} order by submitted_on desc, created_at desc`,
+    params,
+  );
 }
 
 // ---------------------------------------------------------------------
@@ -263,34 +266,42 @@ export type ProjectEditorData = {
 };
 
 export async function getProjectForEditor(id: string): Promise<ProjectEditorData | null> {
-  const supabase = createAdminClient();
+  if (!isUuid(id)) return null;
 
-  const { data: project, error: projectError } = await supabase
-    .from("projects")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
-  if (projectError) throw projectError;
+  const project = await queryOne<Project>("select * from projects where id = @id", { id });
   if (!project) return null;
 
-  const [{ data: media, error: mediaError }, { data: updates, error: updatesError }, { data: submitters, error: submittersError }, { data: auditLog, error: auditError }] =
-    await Promise.all([
-      supabase.from("project_media").select("*").eq("project_id", id).order("sort_order", { ascending: true }),
-      supabase.from("project_updates").select("*").eq("project_id", id).order("happened_on", { ascending: false }),
-      supabase.from("project_submitters").select("*").eq("project_id", id),
-      supabase.from("admin_audit_log").select("*").eq("project_id", id).order("created_at", { ascending: false }),
-    ]);
+  const [media, updates, submitters, auditRows] = await Promise.all([
+    query<ProjectMedia>("select * from project_media where project_id = @id order by sort_order asc", { id }),
+    query<ProjectUpdate>(
+      "select * from project_updates where project_id = @id order by happened_on desc, created_at desc",
+      { id },
+    ),
+    query<SubmitterRow>("select * from project_submitters where project_id = @id", { id }),
+    query<Omit<AdminAuditLog, "diff"> & { diff: string | null }>(
+      "select * from admin_audit_log where project_id = @id order by created_at desc",
+      { id },
+    ),
+  ]);
 
-  if (mediaError) throw mediaError;
-  if (updatesError) throw updatesError;
-  if (submittersError) throw submittersError;
-  if (auditError) throw auditError;
+  let submitter: ProjectSubmitter | null = null;
+  if (submitters[0]) {
+    const { pending_photo_paths, ...rest } = submitters[0];
+    void pending_photo_paths;
+    submitter = rest;
+  }
 
-  return {
-    project: project as Project,
-    media: (media ?? []) as ProjectMedia[],
-    updates: (updates ?? []) as ProjectUpdate[],
-    submitter: (submitters as ProjectSubmitter[] | null)?.[0] ?? null,
-    auditLog: (auditLog ?? []) as AdminAuditLog[],
-  };
+  const auditLog: AdminAuditLog[] = auditRows.map((row) => {
+    let diff: Record<string, unknown> | null = null;
+    if (row.diff) {
+      try {
+        diff = JSON.parse(row.diff) as Record<string, unknown>;
+      } catch {
+        diff = null;
+      }
+    }
+    return { ...row, diff };
+  });
+
+  return { project, media, updates, submitter, auditLog };
 }

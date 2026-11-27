@@ -1,6 +1,6 @@
-/** Row shapes mirroring supabase/migrations/0001_core.sql. Kept hand-written
- * (rather than generated) since Phase 1 has a small, stable schema; revisit
- * with `supabase gen types` once Phase 2's tables land. */
+/** Row shapes mirroring db/migrations/0001_init.sql, as lib/db.ts returns
+ * them: `date` columns as "YYYY-MM-DD", timestamps as ISO strings, ids
+ * lowercase. Hand-written; keep in step with the migrations. */
 
 export type ProjectStatus =
   | "lead"
@@ -10,7 +10,7 @@ export type ProjectStatus =
   | "completed"
   | "no_action";
 
-export type ProjectSource = "creator" | "public";
+export type ProjectSource = "admin" | "public";
 
 export type Project = {
   id: string;
@@ -19,7 +19,7 @@ export type Project = {
   name_ml: string | null;
   description_en: string | null;
   description_ml: string | null;
-  district: string;
+  area: string;
   local_body: string | null;
   local_body_type: "panchayat" | "municipality" | "corporation" | "other" | null;
   latitude: number | null;
@@ -30,6 +30,9 @@ export type Project = {
   inaugurated_on: string | null;
   promised_completion_on: string | null;
   department: string | null;
+  ward_no: number | null;
+  contractor_name: string | null;
+  contractor_source: string | null;
   status: ProjectStatus;
   source: ProjectSource;
   submitted_on: string;
@@ -37,7 +40,6 @@ export type Project = {
   resolved_on: string | null;
   instagram_url: string | null;
   youtube_url: string | null;
-  seen_count: number;
   is_published: boolean;
   archived_at: string | null;
   created_at: string;
@@ -67,15 +69,27 @@ export type ProjectMedia = {
   created_at: string;
 };
 
+/** An issue as the list pages load it: the row itself, plus its first
+ * photo and most recent update, so a card can show them without a query
+ * per card. Named in `_en`/`_ml` pairs so pick() reads them. */
+export type ProjectListItem = Project & {
+  cover_path: string | null;
+  cover_caption_en: string | null;
+  cover_caption_ml: string | null;
+  latest_update_on: string | null;
+  latest_update_title_en: string | null;
+  latest_update_title_ml: string | null;
+};
+
 export type ProjectListFilters = {
-  district?: string;
+  area?: string;
   status?: ProjectStatus;
   department?: string;
   q?: string;
-  sort?: "newest" | "days_desc" | "cost_desc" | "seen_desc";
+  sort?: "newest" | "days_desc" | "cost_desc";
 };
 
-/** Phase 2 row shapes, mirroring supabase/migrations/0002_admin.sql. */
+/** Admin-side rows. */
 
 export type ProjectSubmitter = {
   id: string;
@@ -85,13 +99,6 @@ export type ProjectSubmitter = {
   phone: string | null;
   note: string | null;
   ip_hash: string | null;
-  created_at: string;
-};
-
-export type SeenConfirmation = {
-  id: string;
-  project_id: string;
-  fingerprint: string;
   created_at: string;
 };
 
