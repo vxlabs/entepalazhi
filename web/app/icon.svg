@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- A worksite notice board on two posts. -->
+  <rect x="14" y="40" width="6" height="20" fill="#171714"/>
+  <rect x="44" y="40" width="6" height="20" fill="#171714"/>
+  <rect x="4" y="6" width="56" height="38" fill="#f5c400" stroke="#171714" stroke-width="5"/>
+  <rect x="13" y="15" width="38" height="5" fill="#171714"/>
+  <rect x="13" y="24" width="26" height="4" fill="#171714"/>
+  <rect x="13" y="32" width="32" height="4" fill="#171714"/>
+</svg>

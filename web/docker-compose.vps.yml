@@ -1,0 +1,44 @@
+# Overlay for the shared Linux server, where Coolify's Traefik (container
+# coolify-proxy) already owns ports 80/443. Used together with the base file:
+#   docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d --build
+# Traefik routes entepalazhi.in to the web container over the external
+# "coolify" network and gets the HTTPS certificate from Let's Encrypt.
+# The database is a SQLite file inside the web container's "db" volume.
+services:
+  web:
+    networks:
+      - default
+      - coolify
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: coolify
+      traefik.http.services.entepalazhi.loadbalancer.server.port: "3000"
+
+      traefik.http.middlewares.entepalazhi-https-redirect.redirectscheme.scheme: https
+      traefik.http.middlewares.entepalazhi-www-redirect.redirectregex.regex: "^https?://www\\.entepalazhi\\.in/(.*)"
+      traefik.http.middlewares.entepalazhi-www-redirect.redirectregex.replacement: "https://entepalazhi.in/$${1}"
+      traefik.http.middlewares.entepalazhi-www-redirect.redirectregex.permanent: "true"
+
+      traefik.http.routers.entepalazhi-http.entrypoints: http
+      traefik.http.routers.entepalazhi-http.rule: Host(`entepalazhi.in`) || Host(`www.entepalazhi.in`)
+      traefik.http.routers.entepalazhi-http.middlewares: entepalazhi-https-redirect
+      traefik.http.routers.entepalazhi-http.service: entepalazhi
+
+      # Separate routers, so each host gets its own certificate: a DNS
+      # problem with www can never block the main domain's certificate.
+      traefik.http.routers.entepalazhi-https.entrypoints: https
+      traefik.http.routers.entepalazhi-https.rule: Host(`entepalazhi.in`)
+      traefik.http.routers.entepalazhi-https.service: entepalazhi
+      traefik.http.routers.entepalazhi-https.tls: "true"
+      traefik.http.routers.entepalazhi-https.tls.certresolver: letsencrypt
+
+      traefik.http.routers.entepalazhi-www-https.entrypoints: https
+      traefik.http.routers.entepalazhi-www-https.rule: Host(`www.entepalazhi.in`)
+      traefik.http.routers.entepalazhi-www-https.middlewares: entepalazhi-www-redirect
+      traefik.http.routers.entepalazhi-www-https.service: entepalazhi
+      traefik.http.routers.entepalazhi-www-https.tls: "true"
+      traefik.http.routers.entepalazhi-www-https.tls.certresolver: letsencrypt
+
+networks:
+  coolify:
+    external: true
